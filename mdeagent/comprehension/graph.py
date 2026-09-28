@@ -71,7 +71,7 @@ def route_evaluation_decision(
     If the transformation plan is incomplete or inconsistent, the flow loops back to the reflect_comprehension node for further refinement.
     """
     evaluation_runs = state.get("latest_evaluation_runs", {})
-    transformation_plan_run = evaluation_runs.get("transformation_plan")
+    transformation_plan_run = evaluation_runs.get("plan_complete")
 
     if transformation_plan_run is None:
         return "failure"
