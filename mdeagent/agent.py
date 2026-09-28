@@ -87,6 +87,7 @@ def build_mdeagent(
     preparation_node = create_preparation_node(
         preparation_agent=build_preparation_graph(
             evaluation_executor=agent_evaluator,
+            max_iterations=config.AGENT_CONTROL.SUBGRAPH_MAX_ITERATIONS,
             benchmarx_path=benchmarx_path,
             download_benchmarx=download_benchmarx,
         ).compile(),
@@ -102,12 +103,14 @@ def build_mdeagent(
         comprehension_subgraph=build_comprehension_graph(
             evaluation_executor=agent_evaluator,
             comprehension_agent=build_comprehension_agent(model=model),
+            max_iterations=config.AGENT_CONTROL.SUBGRAPH_MAX_ITERATIONS,
         ).compile()
     )
     implementation_node = create_implementation_node(
         agent=build_implementation_graph(
             evaluation_executor=agent_evaluator,
             workspace_path=workspace_path,
+            max_iterations=config.AGENT_CONTROL.SUBGRAPH_MAX_ITERATIONS,
             implementation_strategy=config.AGENT_CONTROL.TRANSFORMATION_IMPLEMENTATION_STRATEGY,
             model=model,
             benchmarx_path=benchmarx_path,

@@ -18,6 +18,7 @@ from mdeagent.util import cancel_if_iteration_exceeded, with_transformation
 
 def build_preparation_graph(
     evaluation_executor: EvaluationExecutor,
+    max_iterations: int,
     benchmarx_path: Path | None = None,
     download_benchmarx: bool = False,
 ) -> StateGraph:
@@ -74,7 +75,7 @@ def build_preparation_graph(
                 "iteration": state.get("iteration", 0) + 1,
             },
         ),
-        transform=cancel_if_iteration_exceeded(max_iteration=3),
+        transform=cancel_if_iteration_exceeded(max_iteration=max_iterations),
     )
 
     # 3. Build the preparation graph

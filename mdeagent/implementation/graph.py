@@ -31,6 +31,7 @@ from mdeagent.util import cancel_if_iteration_exceeded, with_transformation
 def build_implementation_graph(
     evaluation_executor: EvaluationExecutor,
     workspace_path: Path,
+    max_iterations: int,
     implementation_strategy: Literal[
         "deep_agent", "hybrid_agent", "template_based"
     ] = "deep_agent",
@@ -81,7 +82,7 @@ def build_implementation_graph(
                 "iteration": state.get("iteration", 0) + 1,
             },
         ),
-        transform=cancel_if_iteration_exceeded(max_iteration=3),
+        transform=cancel_if_iteration_exceeded(max_iteration=max_iterations),
     )
 
     # 4. Build the graph
