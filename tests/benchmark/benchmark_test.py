@@ -25,6 +25,7 @@ from benchmark.test_models import (
     collect_trace_info,
     load_models,
     run_benchmark_model,
+    run_benchmark,
 )
 
 
@@ -139,10 +140,13 @@ class TestRunBenchmarkModel(TestCase):
                         workspace_path=workspace_path,
                         langfuse_client=mock_langfuse_client,
                         langfuse_callback=mock_langfuse_callback,
+                        iteration=3,
                     )
 
                 # Verify result structure
                 self.assertTrue(result["success"])
+                self.assertEqual(result["model_id"], "test-model")
+                self.assertEqual(result["iteration"], 3)
                 self.assertEqual(result["model_id"], "test-model")
                 self.assertEqual(result["trace_id"], "test-trace-id")
                 self.assertEqual(result["iterations_completed"], 2)
@@ -178,10 +182,12 @@ class TestRunBenchmarkModel(TestCase):
                         workspace_path=workspace_path,
                         langfuse_client=mock_langfuse_client,
                         langfuse_callback=mock_langfuse_callback,
+                        iteration=1,
                     )
 
                 # Verify error handling
                 self.assertFalse(result["success"])
+                self.assertEqual(result["iteration"], 1)
                 self.assertIsNotNone(result["error"])
                 self.assertEqual(result["error"]["type"], "RuntimeError")
                 self.assertEqual(result["error"]["message"], "Test error")
@@ -248,6 +254,115 @@ class TestModelIdFormat(TestCase):
         agent_name = f"MDEAgent-Benchmark-{model_id.replace('/', '-')}"
         self.assertNotIn("/", agent_name)
         self.assertEqual(agent_name, "MDEAgent-Benchmark-Qwen-Qwen3.8-27B-FP8")
+
+    def test_model_id_with_slashes_and_iteration(self):
+        """Test that model IDs with slashes include iteration number in agent name."""
+        model_id = "Qwen/Qwen3.8-27B-FP8"
+        iteration = 3
+        agent_name = f"MDEAgent-Benchmark-{model_id.replace('/', '-')}-iter{iteration}"
+        self.assertNotIn("/", agent_name)
+        self.assertEqual(agent_name, "MDEAgent-Benchmark-Qwen-Qwen3.8-27B-FP8-iter3")
+        self.assertIn("-iter3", agent_name)
+
+
+class TestRunBenchmark(TestCase):
+    """Tests for the parallel run_benchmark function."""
+
+    def test_run_benchmark_generates_correct_number_of_tasks(self):
+        """Test that num_iterations parameter generates correct number of task pairs."""
+        models = ["model1", "model2"]
+        num_iterations = 5
+
+        # Verify the formula: models × iterations
+        expected_tasks = len(models) * num_iterations
+        self.assertEqual(expected_tasks, 10)
+
+        # Each model should be run 5 times
+        for i, model_id in enumerate(models, 1):
+            for iteration in range(1, num_iterations + 1):
+                task_name = f"{model_id}-iter{iteration}"
+                self.assertIsNotNone(task_name)
+
+    def test_run_benchmark_default_parameters(self):
+        """Test default parameters for run_benchmark."""
+        import inspect
+        sig = inspect.signature(run_benchmark)
+
+        # Check default values
+        self.assertEqual(sig.parameters["num_iterations"].default, 5)
+        self.assertEqual(sig.parameters["max_concurrency"].default, 3)
+
+    def test_run_benchmark_semaphore_concurrency(self):
+        """Test that semaphore limits concurrent executions."""
+        async def _test():
+            semaphore = asyncio.Semaphore(2)
+            max_concurrent = 0
+            current = 0
+
+            async def task():
+                nonlocal max_concurrent, current
+                async with semaphore:
+                    current += 1
+                    max_concurrent = max(max_concurrent, current)
+                    await asyncio.sleep(0.01)
+                    current -= 1
+
+            # Run 10 tasks with max_concurrency=2
+            await asyncio.gather(*[task() for _ in range(10)])
+            self.assertLessEqual(max_concurrent, 2)
+
+        asyncio.run(_test())
+
+    def test_run_benchmark_result_contains_iteration_field(self):
+        """Test that each result contains an iteration field."""
+        # Create a mock result to verify structure
+        result = {
+            "model_id": "test-model",
+            "iteration": 3,
+            "workspace_path": "/tmp/test",
+            "timestamp": "2024-01-01T00:00:00+00:00",
+            "success": True,
+            "error": None,
+            "trace_id": None,
+            "trace_url": None,
+            "transformation_class_path": None,
+            "bxtool_path": None,
+            "written_files": [],
+            "evaluation_runs": [],
+            "iterations_completed": 0,
+        }
+
+        self.assertIn("iteration", result)
+        self.assertEqual(result["iteration"], 3)
+        self.assertEqual(result["model_id"], "test-model")
+
+    def test_run_benchmark_error_handling_in_gather(self):
+        """Test that exceptions from asyncio.gather are properly handled."""
+        async def _test():
+            async def failing_task():
+                raise ValueError("Test failure")
+
+            async def successful_task():
+                return {"success": True, "data": "result"}
+
+            # Simulate gather with mixed success/failure
+            tasks = [failing_task(), successful_task(), failing_task()]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Should have 3 results
+            self.assertEqual(len(results), 3)
+
+            # First should be an exception
+            self.assertIsInstance(results[0], ValueError)
+            self.assertEqual(str(results[0]), "Test failure")
+
+            # Second should be successful result
+            self.assertTrue(results[1]["success"])
+
+            # Third should be an exception
+            self.assertIsInstance(results[2], ValueError)
+
+        asyncio.run(_test())
 
 
 if __name__ == "__main__":

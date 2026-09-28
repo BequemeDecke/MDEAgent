@@ -95,6 +95,7 @@ async def run_benchmark_model(
     workspace_path: Path,
     langfuse_client: Langfuse,
     langfuse_callback: LangfuseCallbackHandler,
+    iteration: int = 1,
 ) -> dict[str, Any]:
     """Run a single benchmark iteration for one model.
 
@@ -103,12 +104,14 @@ async def run_benchmark_model(
         workspace_path: Path to the temporary workspace
         langfuse_client: Langfuse client for trace collection
         langfuse_callback: Langfuse callback handler
+        iteration: Iteration number (for repeated runs)
 
     Returns:
         Dictionary with benchmark results
     """
     result: dict[str, Any] = {
         "model_id": model_id,
+        "iteration": iteration,
         "workspace_path": str(workspace_path),
         "timestamp": datetime.now(tz=UTC).isoformat(),
         "success": False,
@@ -134,7 +137,7 @@ async def run_benchmark_model(
             benchmarx_path=None,
             model=model,
         )
-        agent = agent_builder.compile(name=f"MDEAgent-Benchmark-{model_id}")
+        agent = agent_builder.compile(name=f"MDEAgent-Benchmark-{model_id.replace('/', '-')}-iter{iteration}")
 
         # 3. Create initial state
         initial_state = MDEAgentState(
@@ -222,11 +225,62 @@ def collect_trace_info(langfuse_client: Langfuse, model_id: str) -> dict[str, st
     return trace_info
 
 
-async def run_benchmark() -> list[dict[str, Any]]:
-    """Run the full benchmark across all models.
+async def _run_single_iteration(
+    model_id: str,
+    iteration: int,
+) -> dict[str, Any]:
+    """Run a single benchmark iteration for one model with its own workspace.
+
+    Each iteration gets its own temporary workspace and LangFuse callback.
+
+    Args:
+        model_id: The model ID to benchmark
+        iteration: Iteration number
 
     Returns:
-        List of result dictionaries, one per model
+        Dictionary with benchmark results
+    """
+    # Create temporary workspace (will be deleted automatically)
+    with tempfile.TemporaryDirectory(prefix="mdeagent-benchmark-") as temp_dir:
+        workspace_path = Path(temp_dir)
+
+        # Build LangFuse callback for this iteration
+        langfuse_client_instance, langfuse_callback = build_langfuse_client()
+
+        try:
+            # Run the benchmark
+            result = await run_benchmark_model(
+                model_id=model_id,
+                workspace_path=workspace_path,
+                langfuse_client=langfuse_client_instance,
+                langfuse_callback=langfuse_callback,
+                iteration=iteration,
+            )
+
+            # Collect trace information from LangFuse
+            trace_info = collect_trace_info(langfuse_client_instance, model_id)
+            result["trace_id"] = trace_info.get("trace_id")
+            result["trace_url"] = trace_info.get("trace_url")
+
+            return result
+
+        finally:
+            # Ensure flush happens even if result collection fails
+            langfuse_client_instance.flush()
+
+
+async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> list[dict[str, Any]]:
+    """Run the full benchmark across all models.
+
+    Each model is run `num_iterations` times in separate workspaces.
+    Models run in parallel with controlled concurrency.
+
+    Args:
+        num_iterations: Number of times each model should be run (default: 5)
+        max_concurrency: Maximum number of models to run in parallel (default: 3)
+
+    Returns:
+        List of result dictionaries, one per (model, iteration) pair
     """
     # 1. Load models
     logger.info(f"Loading models from {MODELS_CSV}")
@@ -237,11 +291,6 @@ async def run_benchmark() -> list[dict[str, Any]]:
         logger.error("No models found in models.csv")
         return []
 
-    # 2. Build LangFuse client
-    logger.info("Building LangFuse client")
-    langfuse_client, langfuse_callback = build_langfuse_client()
-    logger.info("LangFuse client ready")
-
     # 3. Verify source model paths exist
     if not SOURCE_MODEL_PATH.exists():
         logger.error(f"Source model path not found: {SOURCE_MODEL_PATH}")
@@ -250,48 +299,72 @@ async def run_benchmark() -> list[dict[str, Any]]:
         logger.error(f"Target model path not found: {TARGET_MODEL_PATH}")
         return []
 
-    # 4. Run benchmark for each model
+    # 4. Run benchmark with parallelization
+    semaphore = asyncio.Semaphore(max_concurrency)
     results = []
-    for i, model_id in enumerate(models, 1):
-        logger.info(f"[{i}/{len(models)}] Running benchmark for model: {model_id}")
+    total_tasks = len(models) * num_iterations
+    completed = 0
 
-        # Create temporary workspace (will be deleted automatically)
-        with tempfile.TemporaryDirectory(prefix="mdeagent-benchmark-") as temp_dir:
-            workspace_path = Path(temp_dir)
-
-            # Run the benchmark
-            result = await run_benchmark_model(
+    async def run_with_semaphore(model_id: str, iteration: int) -> dict[str, Any]:
+        """Run benchmark with concurrency limit."""
+        nonlocal completed
+        async with semaphore:
+            logger.info(f"[Run {completed + 1}/{total_tasks}] Starting: {model_id} (iter {iteration})")
+            result = await _run_single_iteration(
                 model_id=model_id,
-                workspace_path=workspace_path,
-                langfuse_client=langfuse_client,
-                langfuse_callback=langfuse_callback,
+                iteration=iteration,
             )
-
-            # Collect trace information from LangFuse
-            trace_info = collect_trace_info(langfuse_client, model_id)
-            result["trace_id"] = trace_info.get("trace_id")
-            result["trace_url"] = trace_info.get("trace_url")
-
-            results.append(result)
-
-            # Log summary
+            completed += 1
             status = "✓ SUCCESS" if result["success"] else f"✗ FAILED: {result.get('error', {}).get('message', 'Unknown error')}"
-            logger.info(f"Model {model_id}: {status}")
+            logger.info(f"[Run {completed}/{total_tasks}] {model_id} (iter {iteration}): {status}")
+            return result
+
+    # Create all tasks: each (model, iteration) pair
+    tasks = []
+    for model_id in models:
+        for iteration in range(1, num_iterations + 1):
+            tasks.append(run_with_semaphore(model_id, iteration))
+
+    # Execute all tasks concurrently (semaphore limits actual concurrency)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Handle any exceptions from gather
+    processed_results = []
+    for result in results:
+        if isinstance(result, Exception):
+            logger.error(f"Unexpected error in benchmark task: {result}")
+            processed_results.append({
+                "model_id": "unknown",
+                "iteration": 0,
+                "success": False,
+                "error": {"type": type(result).__name__, "message": str(result)},
+                "trace_id": None,
+                "trace_url": None,
+                "workspace_path": None,
+                "timestamp": datetime.now(tz=UTC).isoformat(),
+                "transformation_class_path": None,
+                "bxtool_path": None,
+                "written_files": [],
+                "evaluation_runs": [],
+                "iterations_completed": 0,
+            })
+        else:
+            processed_results.append(result)
 
     # 5. Save results to JSON
-    logger.info(f"Saving {len(results)} results to {RESULTS_JSON}")
+    logger.info(f"Saving {len(processed_results)} results to {RESULTS_JSON}")
     RESULTS_JSON.parent.mkdir(parents=True, exist_ok=True)
     with open(RESULTS_JSON, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+        json.dump(processed_results, f, indent=2, ensure_ascii=False, default=str)
 
     logger.info(f"Benchmark complete. Results saved to {RESULTS_JSON}")
 
     # Summary statistics
-    success_count = sum(1 for r in results if r["success"])
-    failure_count = len(results) - success_count
-    logger.info(f"Summary: {success_count} succeeded, {failure_count} failed out of {len(results)} models")
+    success_count = sum(1 for r in processed_results if r["success"])
+    failure_count = len(processed_results) - success_count
+    logger.info(f"Summary: {success_count} succeeded, {failure_count} failed out of {len(processed_results)} runs")
 
-    return results
+    return processed_results
 
 
 def main():
