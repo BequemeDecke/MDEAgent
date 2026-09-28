@@ -3,6 +3,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
 
+from mdeagent.config import Config
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,3 +103,33 @@ def limit_text(text: str, limit: int = 100) -> str:
         return text
     else:
         return text[:limit] + "..."
+
+def cancel_if_iteration_exceeded(max_iteration: int | None = None):
+    """Checks if the current iteration exceeds the maximum allowed iterations. If it does, a RuntimeError is raised to cancel further iterations.
+
+    Args:
+        max_iteration (int | None, optional): The maximum number of iterations allowed. If None, the default value from the configuration will be used.
+
+    Raises:
+        RuntimeError: If the current iteration exceeds the maximum allowed iterations.
+
+    Returns:
+        _type_: A transformation function that can be used in the workflow to check and control the iteration count.
+    """
+    if max_iteration is None:
+        max_iteration = Config.get_instance().AGENT_CONTROL.WORKFLOW_MAX_ITERATIONS
+
+    def transformation(state: dict) -> dict:
+        iteration: int = state.get("iteration")
+
+        if iteration is not None and iteration >= max_iteration:
+            logger.warning(
+                f"Maximum iteration count reached ({iteration}/{max_iteration}). Cancelling further iterations."
+            )
+            raise RuntimeError(
+                f"Maximum iteration count reached ({iteration}/{max_iteration})."
+            )
+
+        return {**state} 
+
+    return transformation
