@@ -14,8 +14,18 @@ dependencies = [
     "pydantic>=2.13.5",
 ]
 
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mdeagent*", "scripts*"]
+
 [dependency-groups]
 dev = [
     "pygraphviz>=2.0.2",
     "pytest>=9.1.1",
 ]
+
+[project.scripts]
+json-to-csv = "scripts.json_to_csv:main"

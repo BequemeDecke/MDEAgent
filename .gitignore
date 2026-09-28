@@ -2,6 +2,7 @@
 agent_data/
 exclude/
 .mdeagent-workspace/
+.mdeagent-benchmark/
 
 notebooks/*/test_results/
 notebooks/*/templates/
