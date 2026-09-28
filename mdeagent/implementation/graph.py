@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from langchain.chat_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
 from mdeagent.evaluation.executor import EvaluationExecutor
@@ -33,11 +34,13 @@ def build_implementation_graph(
     implementation_strategy: Literal[
         "deep_agent", "hybrid_agent", "template_based"
     ] = "deep_agent",
+    model: BaseChatModel | None = None,
     benchmarx_path: Path | None = None,
 ) -> StateGraph:
     """Build the implementation graph for the MDE agent."""
     # 1. Build the base model
-    base_model = build_base_model()
+    if model is None:
+        model = build_base_model()
 
     # 2. Create the nodes
     implement_transformation = create_implement_transformation_node(
@@ -45,6 +48,7 @@ def build_implementation_graph(
         generator=create_transformation_class_generator(
             strategy=implementation_strategy,
             workspace=workspace_path,
+            model=model,
         ),
     )
     format_code = create_format_code_node(
@@ -63,7 +67,7 @@ def build_implementation_graph(
     )
     if benchmarx_path:
         implement_bx_tool = create_implement_bx_tool_node(
-            llm=base_model,
+            llm=model,
             workspace=workspace_path,
             benchmarx_path=benchmarx_path,
         )

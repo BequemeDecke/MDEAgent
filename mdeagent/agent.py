@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from langchain.chat_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
 from mdeagent.comprehension.agent import build_comprehension_agent
@@ -32,6 +33,7 @@ from mdeagent.mapping import (
     mde_to_transformation_plan,
     mde_to_workspace,
 )
+from mdeagent.models import build_base_model
 from mdeagent.preparation.graph import build_preparation_graph
 from mdeagent.preparation.node import create_preparation_node
 from mdeagent.state import MDEAgentState
@@ -43,8 +45,11 @@ def build_mdeagent(
     workspace_path: Path,
     benchmarx_path: Path | None = None,
     download_benchmarx: bool = False,
+    model: BaseChatModel | None = None,
 ) -> StateGraph[MDEAgentState]:
     config = Config.get_instance()
+    if model is None:
+        model = build_base_model()
 
     # 1. Initialize the core components of the MDEAgent
     check_transformation_iteration = create_check_transformation_iteration_function()
@@ -79,26 +84,24 @@ def build_mdeagent(
     )
 
     # 2. Create the base nodes of the MDEAgent workflow
-    preparation_node = (
-        create_preparation_node(
-            preparation_agent=build_preparation_graph(
-                evaluation_executor=agent_evaluator,
-                benchmarx_path=benchmarx_path,
-                download_benchmarx=download_benchmarx,
-            ).compile(),
-            workspace_path=workspace_path,
-            required_tools=[
-                "mvn",
-                "java",
-                "javac",
-                "jar",
-            ],
-        )
+    preparation_node = create_preparation_node(
+        preparation_agent=build_preparation_graph(
+            evaluation_executor=agent_evaluator,
+            benchmarx_path=benchmarx_path,
+            download_benchmarx=download_benchmarx,
+        ).compile(),
+        workspace_path=workspace_path,
+        required_tools=[
+            "mvn",
+            "java",
+            "javac",
+            "jar",
+        ],
     )
     comprehension_node = create_comprehension_node(
         comprehension_subgraph=build_comprehension_graph(
             evaluation_executor=agent_evaluator,
-            comprehension_agent=build_comprehension_agent(),
+            comprehension_agent=build_comprehension_agent(model=model),
         ).compile()
     )
     implementation_node = create_implementation_node(
@@ -106,6 +109,7 @@ def build_mdeagent(
             evaluation_executor=agent_evaluator,
             workspace_path=workspace_path,
             implementation_strategy=config.AGENT_CONTROL.TRANSFORMATION_IMPLEMENTATION_STRATEGY,
+            model=model,
             benchmarx_path=benchmarx_path,
         ).compile()
     )

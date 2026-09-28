@@ -5,7 +5,7 @@ from mdeagent.implementation.types import TransformationClassGenerator
 
 
 def create_transformation_class_generator(
-    strategy: Literal["deep_agent", "hybrid_agent", "template_based", "pi"], workspace: Path
+    strategy: Literal["deep_agent", "hybrid_agent", "template_based", "pi"], workspace: Path, **kwargs
 ) -> TransformationClassGenerator:
     """
     Factory function to create a TransformationClassGenerator based on the configuration.
@@ -40,7 +40,7 @@ def create_transformation_class_generator(
             build_deep_agent,
         )
 
-        graph = build_deep_agent(workspace)
+        graph = build_deep_agent(workspace, model=kwargs.get("model"))
 
     agent_wrapper = TransformationClassAgentWrapper(graph)
     return agent_wrapper
