@@ -30,3 +30,4 @@ dev = [
 [project.scripts]
 json-to-csv = "scripts.json_to_csv:main"
 fetch-models = "scripts.fetch_models:main"
+benchmark = "benchmark.test_models:main"
