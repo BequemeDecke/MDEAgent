@@ -149,3 +149,17 @@ def real_to_virtual(path: Path, real_root: Path, virtual_root: Path) -> Path:
 
     return virtual_root / relative_path
 
+
+def virtual_to_real(path: Path, real_root: Path, virtual_root: Path) -> Path:
+    """Mappt einen virtuellen Pfad auf den realen Workspace."""
+    virtual_path = path.resolve(strict=False)
+    resolved_virtual_root = virtual_root.resolve(strict=False)
+
+    try:
+        relative_path = virtual_path.relative_to(resolved_virtual_root)
+    except ValueError as error:
+        raise ValueError(
+            f"Pfad liegt außerhalb von {resolved_virtual_root}: {virtual_path}"
+        ) from error
+
+    return real_root / relative_path
