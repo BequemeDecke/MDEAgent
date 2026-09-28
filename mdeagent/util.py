@@ -133,3 +133,19 @@ def cancel_if_iteration_exceeded(max_iteration: int | None = None):
         return {**state} 
 
     return transformation
+
+
+def real_to_virtual(path: Path, real_root: Path, virtual_root: Path) -> Path:
+    """Mappt einen realen Pfad auf den virtuellen Workspace."""
+    real_path = path.resolve(strict=False)
+    resolved_real_root = real_root.resolve(strict=False)
+
+    try:
+        relative_path = real_path.relative_to(resolved_real_root)
+    except ValueError as error:
+        raise ValueError(
+            f"Pfad liegt außerhalb von {resolved_real_root}: {real_path}"
+        ) from error
+
+    return virtual_root / relative_path
+
