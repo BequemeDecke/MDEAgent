@@ -44,6 +44,10 @@ class AgentControlConfig(BaseModel):
         default=5,
         description="Maximum number of iterations for the workflow transformation process.",
     )
+    SUBGRAPH_MAX_ITERATIONS: int = Field(
+        default=3,
+        description="Maximum number of iterations for a subgraph process.",
+    )
     TRANSFORMATION_IMPLEMENTATION_STRATEGY: Literal[
         "deep_agent", "hybrid_agent", "template_based", "pi"
     ] = Field(
@@ -101,6 +105,7 @@ def load_config(env_path: Path) -> BaseModel:
         TRANSFORMATION_IMPLEMENTATION_STRATEGY=os.getenv(
             "TRANSFORMATION_IMPLEMENTATION_STRATEGY", "deep_agent"
         ),
+        SUBGRAPH_MAX_ITERATIONS=int(os.getenv("SUBGRAPH_MAX_ITERATIONS", "3")),
     )
 
     # Log the loaded configurations
