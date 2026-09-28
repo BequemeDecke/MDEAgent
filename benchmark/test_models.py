@@ -351,13 +351,22 @@ async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> li
         else:
             processed_results.append(result)
 
-    # 5. Save results to JSON
-    logger.info(f"Saving {len(processed_results)} results to {RESULTS_JSON}")
+    # 5. Save results to individual files per model
     RESULTS_JSON.parent.mkdir(parents=True, exist_ok=True)
-    with open(RESULTS_JSON, "w", encoding="utf-8") as f:
-        json.dump(processed_results, f, indent=2, ensure_ascii=False, default=str)
+    results_by_model: dict[str, list[dict[str, Any]]] = {}
+    for result in processed_results:
+        model_id = result["model_id"]
+        results_by_model.setdefault(model_id, []).append(result)
 
-    logger.info(f"Benchmark complete. Results saved to {RESULTS_JSON}")
+    for model_id, model_results in results_by_model.items():
+        # Sanitize model ID for filename: replace '/' with '-'
+        safe_name = model_id.replace("/", "-")
+        output_path = RESULTS_JSON.parent / f"results_{safe_name}.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(model_results, f, indent=2, ensure_ascii=False, default=str)
+        logger.info(f"Saved {len(model_results)} results for {model_id} to {output_path}")
+
+    logger.info("Benchmark complete.")
 
     # Summary statistics
     success_count = sum(1 for r in processed_results if r["success"])
