@@ -23,10 +23,10 @@ class MavenProject:
         """
         validate_process = subprocess.run(
             ["mvn", "validate"],
-            check=False,
             cwd=self.workspace,
             capture_output=True,
             text=True,
+            check=False,
         )
         if validate_process.returncode != 0:
             logger.error(
@@ -41,7 +41,11 @@ class MavenProject:
         :return: True if the formatting was successful, False otherwise.
         """
         format_process = subprocess.run(
-            ["mvn", "spotless:apply"], check=True, cwd=self.workspace
+            ["mvn", "spotless:apply"],
+            capture_output=True,
+            cwd=self.workspace,
+            check=False,
+            text=True,
         )
         return format_process.returncode == 0
 
@@ -56,6 +60,7 @@ class MavenProject:
             cwd=self.workspace,
             capture_output=True,
             text=True,
+            check=False,
         )
         return (
             compile_process.returncode == 0,
@@ -71,7 +76,11 @@ class MavenProject:
         :return: True if the build was successful, False otherwise.
         """
         build_process = subprocess.run(
-            ["mvn", "package"], check=True, cwd=self.workspace
+            ["mvn", "package"], 
+            cwd=self.workspace, 
+            capture_output=True,
+            text=True,
+            check=False, 
         )
         return build_process.returncode == 0
 
