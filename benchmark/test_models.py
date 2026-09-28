@@ -6,6 +6,7 @@ builds and runs the MDEAgent with each model, collects results via LangFuse,
 and saves results to benchmark/results.json.
 """
 
+import argparse
 import asyncio
 import csv
 import json
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_CSV = PROJECT_ROOT / ".mdeagent-benchmark" / "models.csv"
+RESULTS_DIR = PROJECT_ROOT / ".mdeagent-benchmark" / "results"
 RESULTS_JSON = PROJECT_ROOT / ".mdeagent-benchmark" / "results.json"
 TEST_SETUP_FILES = PROJECT_ROOT / ".mdeagent-tests" / "setup"
 SOURCE_MODEL_PATH = TEST_SETUP_FILES / "metamodels" / "Families"
@@ -300,15 +302,16 @@ async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> li
         return []
 
     # 4. Run benchmark with parallelization
-    semaphore = asyncio.Semaphore(max_concurrency)
-    results = []
+    # Inner semaphore limits total concurrent iterations across all models
+    iteration_semaphore = asyncio.Semaphore(max_concurrency)
+    results: list[dict[str, Any]] = []
     total_tasks = len(models) * num_iterations
     completed = 0
 
     async def run_with_semaphore(model_id: str, iteration: int) -> dict[str, Any]:
-        """Run benchmark with concurrency limit."""
+        """Run a single benchmark iteration with concurrency limit."""
         nonlocal completed
-        async with semaphore:
+        async with iteration_semaphore:
             logger.info(f"[Run {completed + 1}/{total_tasks}] Starting: {model_id} (iter {iteration})")
             result = await _run_single_iteration(
                 model_id=model_id,
@@ -319,68 +322,82 @@ async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> li
             logger.info(f"[Run {completed}/{total_tasks}] {model_id} (iter {iteration}): {status}")
             return result
 
-    # Create all tasks: each (model, iteration) pair
-    tasks = []
+    # 5. Run all iterations for each model, saving results after each model completes
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     for model_id in models:
-        for iteration in range(1, num_iterations + 1):
-            tasks.append(run_with_semaphore(model_id, iteration))
+        # Create tasks for all iterations of this model
+        model_tasks = [
+            run_with_semaphore(model_id, iteration)
+            for iteration in range(1, num_iterations + 1)
+        ]
 
-    # Execute all tasks concurrently (semaphore limits actual concurrency)
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Execute all iterations for this model
+        model_results_raw = await asyncio.gather(*model_tasks, return_exceptions=True)
 
-    # Handle any exceptions from gather
-    processed_results = []
-    for result in results:
-        if isinstance(result, Exception):
-            logger.error(f"Unexpected error in benchmark task: {result}")
-            processed_results.append({
-                "model_id": "unknown",
-                "iteration": 0,
-                "success": False,
-                "error": {"type": type(result).__name__, "message": str(result)},
-                "trace_id": None,
-                "trace_url": None,
-                "workspace_path": None,
-                "timestamp": datetime.now(tz=UTC).isoformat(),
-                "transformation_class_path": None,
-                "bxtool_path": None,
-                "written_files": [],
-                "evaluation_runs": [],
-                "iterations_completed": 0,
-            })
-        else:
-            processed_results.append(result)
+        # Collect results, handling any exceptions
+        model_results = []
+        for result in model_results_raw:
+            if isinstance(result, Exception):
+                logger.error(f"Unexpected error in benchmark task: {result}")
+                model_results.append({
+                    "model_id": model_id,
+                    "iteration": 0,
+                    "success": False,
+                    "error": {"type": type(result).__name__, "message": str(result)},
+                    "trace_id": None,
+                    "trace_url": None,
+                    "workspace_path": None,
+                    "timestamp": datetime.now(tz=UTC).isoformat(),
+                    "transformation_class_path": None,
+                    "bxtool_path": None,
+                    "written_files": [],
+                    "evaluation_runs": [],
+                    "iterations_completed": 0,
+                })
+            else:
+                model_results.append(result)
 
-    # 5. Save results to individual files per model
-    RESULTS_JSON.parent.mkdir(parents=True, exist_ok=True)
-    results_by_model: dict[str, list[dict[str, Any]]] = {}
-    for result in processed_results:
-        model_id = result["model_id"]
-        results_by_model.setdefault(model_id, []).append(result)
-
-    for model_id, model_results in results_by_model.items():
-        # Sanitize model ID for filename: replace '/' with '-'
+        # Save results for this model immediately
         safe_name = model_id.replace("/", "-")
-        output_path = RESULTS_JSON.parent / f"results_{safe_name}.json"
+        output_path = RESULTS_DIR / f"results_{safe_name}.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(model_results, f, indent=2, ensure_ascii=False, default=str)
         logger.info(f"Saved {len(model_results)} results for {model_id} to {output_path}")
 
+        # Add to overall results
+        results.extend(model_results)
+
     logger.info("Benchmark complete.")
 
     # Summary statistics
-    success_count = sum(1 for r in processed_results if r["success"])
-    failure_count = len(processed_results) - success_count
-    logger.info(f"Summary: {success_count} succeeded, {failure_count} failed out of {len(processed_results)} runs")
+    success_count = sum(1 for r in results if r["success"])
+    failure_count = len(results) - success_count
+    logger.info(f"Summary: {success_count} succeeded, {failure_count} failed out of {len(results)} runs")
 
-    return processed_results
+    return results
 
 
 def main():
     """Main entry point for the benchmark script."""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="MDEAgent Benchmark")
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+        help="Logging level (default: INFO)",
+    )
+    parser.add_argument(
+        "--num-iterations",
+        type=int,
+        default=5,
+        help="Number of times each model should be run (default: 5)",
+    )
+    args = parser.parse_args()
+
     # Configure logging
     logging.basicConfig(
-        level=logging.INFO,
+        level=getattr(logging, args.log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
@@ -389,7 +406,7 @@ def main():
     logger.info("=" * 80)
 
     # Run the benchmark
-    results = asyncio.run(run_benchmark())
+    results = asyncio.run(run_benchmark(num_iterations=args.num_iterations))
 
     # Exit with appropriate code
     if results:

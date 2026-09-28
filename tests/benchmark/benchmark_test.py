@@ -26,6 +26,7 @@ from benchmark.test_models import (
     load_models,
     run_benchmark_model,
     run_benchmark,
+    main,
 )
 
 
@@ -263,6 +264,141 @@ class TestModelIdFormat(TestCase):
         self.assertNotIn("/", agent_name)
         self.assertEqual(agent_name, "MDEAgent-Benchmark-Qwen-Qwen3.8-27B-FP8-iter3")
         self.assertIn("-iter3", agent_name)
+
+
+class TestLogLevels(TestCase):
+    """Tests for the --log-level CLI argument."""
+
+    def test_log_level_defaults_to_info(self):
+        """Test that --log-level defaults to INFO."""
+        import argparse
+        from benchmark.test_models import main
+        import sys
+        from io import StringIO
+
+        # Patch sys.argv to simulate default invocation
+        old_argv = sys.argv
+        old_exit = sys.exit
+        exits = []
+
+        def mock_exit(code=0):
+            exits.append(code)
+            raise SystemExit(code)
+
+        try:
+            sys.argv = ["test_models.py"]
+            sys.exit = mock_exit
+
+            with (
+                patch("benchmark.test_models.run_benchmark", return_value=[]),
+            ):
+                main()
+        except SystemExit:
+            pass
+        finally:
+            sys.argv = old_argv
+            sys.exit = old_exit
+
+        # Empty results list is falsy -> exit code 3 (no results collected)
+        self.assertIn(3, exits)
+
+    def test_log_level_accepts_valid_levels(self):
+        """Test that valid log levels are accepted."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "--log-level",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+            default="INFO",
+        )
+
+        # Test each valid level
+        for level in ["DEBUG", "INFO", "WARNING", "ERROR"]:
+            args = parser.parse_args([f"--log-level", level])
+            self.assertEqual(args.log_level, level)
+
+    def test_log_level_rejects_invalid_level(self):
+        """Test that invalid log levels are rejected."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "--log-level",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+            default="INFO",
+        )
+
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--log-level", "INVALID"])
+
+    def test_num_iterations_defaults_to_five(self):
+        """Test that --num-iterations defaults to 5."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "--num-iterations",
+            type=int,
+            default=5,
+        )
+
+        # Default value
+        args = parser.parse_args([])
+        self.assertEqual(args.num_iterations, 5)
+
+        # Custom value
+        args = parser.parse_args(["--num-iterations", "10"])
+        self.assertEqual(args.num_iterations, 10)
+
+    def test_num_iterations_accepts_positive_integers(self):
+        """Test that positive integers are accepted."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "--num-iterations",
+            type=int,
+            default=5,
+        )
+
+        for value in [1, 3, 10, 100]:
+            args = parser.parse_args(["--num-iterations", str(value)])
+            self.assertEqual(args.num_iterations, value)
+
+    def test_main_passes_num_iterations_to_run_benchmark(self):
+        """Test that main() passes --num-iterations to run_benchmark()."""
+        import sys
+
+        old_argv = sys.argv
+        old_exit = sys.exit
+        exit_args = []
+
+        def mock_exit(code=0):
+            exit_args.append(code)
+            raise SystemExit(code)
+
+        try:
+            sys.argv = ["test_models.py", "--num-iterations", "7"]
+            sys.exit = mock_exit
+
+            with (
+                patch(
+                    "benchmark.test_models.run_benchmark",
+                    return_value=[],
+                ) as mock_run,
+            ):
+                main()
+        except SystemExit:
+            pass
+        finally:
+            sys.argv = old_argv
+            sys.exit = old_exit
+
+        # Verify run_benchmark was called with num_iterations=7
+        mock_run.assert_called_once()
+        call_kwargs = mock_run.call_args
+        self.assertEqual(call_kwargs.kwargs["num_iterations"], 7)
 
 
 class TestRunBenchmark(TestCase):

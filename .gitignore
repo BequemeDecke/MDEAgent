@@ -7,6 +7,7 @@ exclude/
 notebooks/*/test_results/
 notebooks/*/templates/
 notebooks/graph_prints/
+notebooks/benchmark_results/
 
 .mdeagent-tests/test-executions/
 

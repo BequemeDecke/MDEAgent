@@ -23,8 +23,11 @@ include = ["mdeagent*", "scripts*", "benchmark*"]
 
 [dependency-groups]
 dev = [
+    "matplotlib>=3.11.2",
+    "pandas>=3.0.6",
     "pygraphviz>=2.0.2",
     "pytest>=9.1.1",
+    "seaborn>=0.13.2",
 ]
 
 [project.scripts]
