@@ -1,6 +1,48 @@
+import logging
+from typing import Literal
+
 from langchain.tools import ToolRuntime, tool
 
 from mdeagent.comprehension import SerializedTransformationPlan, TransformationPlan
+
+logger = logging.getLogger(__name__)
+
+Section = Literal[
+    "source_model_implementation",
+    "target_model_implementation",
+    "transformation_direction",
+    "implementation_steps",
+    "difficulties",
+    "source_model_package",
+    "target_model_package",
+    "source_model_name",
+    "target_model_name",
+]
+
+
+@tool
+def read_transformation_plan(runtime: ToolRuntime, section: Section) -> str:
+    """Tool to read the transformation plan from the runtime state. The transformation plan is stored in the runtime state as a serialized object, and this tool deserializes it and returns it as a TransformationPlan object.
+
+    Args:
+        runtime (ToolRuntime): The runtime of the agent, which contains the state where the transformation plan is stored.
+        section (Section): The section of the transformation plan to read. Can be one of "source_model_implementation", "target_model_implementation", "transformation_direction", "implementation_steps", or "difficulties".
+
+    Raises:
+        ValueError: If the transformation plan is not found in the runtime state.
+
+    Returns:
+        str: The requested section of the transformation plan as a string.
+    """
+    serialized_tp: SerializedTransformationPlan = runtime.state.get(
+        "transformation_plan"
+    )
+    logger.debug(f"Serialized transformation plan: {serialized_tp}")
+    if serialized_tp is None:
+        raise ValueError("Transformation plan not found in the runtime state.")
+
+    tp: TransformationPlan = TransformationPlan.from_dict(serialized_tp)
+    return tp.data.get(section, "Section not found in the transformation plan.")
 
 
 @tool
@@ -15,7 +57,10 @@ def update_model_implementation(
         source_model_implementation (str | None, optional): The implementation details of the source model.
         target_model_implementation (str | None, optional): The implementation details of the target model.
     """
-    serialized_tp: SerializedTransformationPlan = runtime.state.get("transformation_plan")
+    serialized_tp: SerializedTransformationPlan = runtime.state.get(
+        "transformation_plan"
+    )
+    logger.debug(f"Serialized transformation plan: {serialized_tp}")
     if serialized_tp is None:
         raise ValueError("Transformation plan not found in the runtime state.")
 
@@ -49,7 +94,10 @@ def update_transformation_direction(
     Args:
         transformation_direction (str): The transformation direction to be updated in the transformation plan.
     """
-    serialized_tp: SerializedTransformationPlan = runtime.state.get("transformation_plan")
+    serialized_tp: SerializedTransformationPlan = runtime.state.get(
+        "transformation_plan"
+    )
+    logger.debug(f"Serialized transformation plan: {serialized_tp}")
     if serialized_tp is None:
         raise ValueError("Transformation plan not found in the runtime state.")
 
@@ -67,7 +115,10 @@ def update_difficulties(runtime: ToolRuntime, difficulties: str):
     Args:
         difficulties (str): The identified difficulties to be updated in the transformation plan.
     """
-    serialized_tp: SerializedTransformationPlan = runtime.state.get("transformation_plan")
+    serialized_tp: SerializedTransformationPlan = runtime.state.get(
+        "transformation_plan"
+    )
+    logger.debug(f"Serialized transformation plan: {serialized_tp}")
     if serialized_tp is None:
         raise ValueError("Transformation plan not found in the runtime state.")
 
@@ -85,7 +136,10 @@ def update_implementation_steps(runtime: ToolRuntime, implementation_steps: str)
     Args:
         implementation_steps (str): The implementation steps in markdown to be updated in the transformation plan.
     """
-    serialized_tp: SerializedTransformationPlan = runtime.state.get("transformation_plan")
+    serialized_tp: SerializedTransformationPlan = runtime.state.get(
+        "transformation_plan"
+    )
+    logger.debug(f"Serialized transformation plan: {serialized_tp}")
     if serialized_tp is None:
         raise ValueError("Transformation plan not found in the runtime state.")
 
@@ -97,7 +151,7 @@ def update_implementation_steps(runtime: ToolRuntime, implementation_steps: str)
 
 
 transformation_plan_tools = [
-    # update_model_implementation,
+    read_transformation_plan,
     update_transformation_direction,
     update_difficulties,
     update_implementation_steps,

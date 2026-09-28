@@ -14,6 +14,7 @@ class ComprehensionState(TypedDict):
 
     # === Transformation Plan ===
     transformation_plan: SerializedTransformationPlan  # Has to be in the state
+    task_specification: str # Has to be in the state
     # === Evaluation Results ===
     latest_evaluation_runs: dict[str, EvaluationRun]
     # === Tracking ===

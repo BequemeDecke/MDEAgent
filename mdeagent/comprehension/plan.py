@@ -6,6 +6,8 @@ from typing import Any, Literal, TypedDict
 
 from jinja2 import Environment, FileSystemLoader, Template
 
+from mdeagent.util import limit_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,16 +21,34 @@ class TransformationPlanData(TypedDict):
     difficulties: str
     implementation_steps: str
 
+    def __repr__(self) -> str:
+        return (
+            f"TransformationPlanData(source_model_package={limit_text(self['source_model_package'], 10)}, "
+            f"\ttarget_model_package={limit_text(self['target_model_package'], 10) if len(self['target_model_package']) > 0 else 'N/A'}, "
+            f"\titeration={self['iteration']}, "
+            f"\tsource_model_implementation={limit_text(self['source_model_implementation'], 10)}, "
+            f"\ttarget_model_implementation={limit_text(self['target_model_implementation'], 10)}, "
+            f"\ttransformation_direction={limit_text(self['transformation_direction'], 10)}, "
+            f"\tdifficulties={limit_text(self['difficulties'], 10)}, "
+            f"\timplementation_steps={limit_text(self['implementation_steps'], 10)})"
+        )
+
 
 class SerializedTransformationPlanParser(TypedDict):
     type: str
     args: dict[str, Any]
+
+    def __repr__(self) -> str:
+        return f"SerializedTransformationPlanParser(type={self['type']}, args={self['args']})"
 
 
 class SerializedTransformationPlan(TypedDict):
     data: TransformationPlanData
     parser: SerializedTransformationPlanParser
     template: Path
+
+    def __repr__(self) -> str:
+        return f"SerializedTransformationPlan(data={self['data']}, parser={self['parser']}, template={self['template']})"
 
 
 class TransformationPlanParser(ABC):

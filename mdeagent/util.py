@@ -90,3 +90,14 @@ def copy_workspace(workspace: Path, destination: Path):
 
     shutil.copytree(workspace, destination)
     logger.info(f"Workspace copied from {workspace} to destination: {destination}.")
+
+
+def limit_text(text: str, limit: int = 100) -> str:
+    """
+    Limit the length of a text string to a specified number of characters.
+    If the text exceeds the limit, it will be truncated and an ellipsis ("...") will be appended.
+    """
+    if len(text) <= limit:
+        return text
+    else:
+        return text[:limit] + "..."

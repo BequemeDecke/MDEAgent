@@ -14,9 +14,10 @@ from mdeagent.util import with_transformation
 logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE = """
---- BEGIN TRANSFORMATION PLAN ---
-{transformation_plan}
---- END TRANSFORMATION PLAN ---
+The specific requirements of the transformation by the user is:
+--- BEGIN SPECIFIC TASK ---
+{task_specification}
+--- END SPECIFIC TASK ---
 
 Use the following results to check if the transformation plan is complete and consistent:
 
@@ -33,9 +34,10 @@ def create_reflect_comprehension_node(comprehension_agent: CompiledStateGraph):
         """
         logger.debug("Reflecting on the current transformation plan ...")
         transformation = state.get("transformation_plan")
+        task_specification = state.get("task_specification", "No specific task provided. Think about the transformation plan and how to achieve the transformation!")
 
         input_prompt = PROMPT_TEMPLATE.format(
-            transformation_plan=str(transformation),
+            task_specification=task_specification,
             evaluation_results="\n".join(
                 [str(run) for run in state.get("latest_evaluation_runs", {}).values()]
             ),

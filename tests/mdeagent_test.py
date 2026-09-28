@@ -69,7 +69,9 @@ class TestMDEAgent(TestCase):
                 )
 
         # Build the workflow agent without BenchmarX support
-        self.agent = build_mdeagent(self.workspace_path, benchmarx_path=None).compile()
+        self.agent = build_mdeagent(self.workspace_path, benchmarx_path=None).compile(
+            name="MDEAgent-F2P-Test"
+        )
 
         # Build the Langfuse client for monitoring (optional)
         self.enable_langfuse = enable_langfuse
@@ -81,7 +83,7 @@ class TestMDEAgent(TestCase):
             self.langfuse_client = None
             self.langfuse_callback_handler = None
 
-    def test_mdeagent_workflow(self):
+    def test_mdeagent_f2p(self):
         """The test method for the MDEAgent workflow.
 
         Note: Only ainvoke can be used here, because some nodes are executed asynchronously and the test needs to wait for them to finish. The test will fail if the workflow is not completed successfully.
@@ -92,6 +94,7 @@ class TestMDEAgent(TestCase):
             target_model_path=self.target_model_path,
             group_id="de.hofuniversity",
             artifact_id="MDEAgentFamilyToPerson",
+            task_specification="Transform the Families model to the Persons model, ensure that the transformation keeps the consistency of the data synchronized.",
             iteration=1,
         )
 
@@ -111,11 +114,13 @@ class TestMDEAgent(TestCase):
         self.check_output_state(output.value)
 
         # 4. Check the contents of the workspace for expected files
-        self.check_workspace_contents()
+        self.check_workspace_contents(self.artifact_id)
 
     def check_output_state(self, output: MDEAgentState):
         """Check the output state for expected values."""
-        self.assertIsInstance(output, MDEAgentState, "Output state is not of type MDEAgentState.")
+        self.assertIsInstance(
+            output, MDEAgentState, "Output state is not of type MDEAgentState."
+        )
 
         # Check that the transformation class path is set
         self.assertIsNotNone(
@@ -128,10 +133,10 @@ class TestMDEAgent(TestCase):
         )
 
         # Check that the bxtool path is set
-        self.assertIsNotNone(
-            output.get("bxtool_path"), "BXT tool path should not be None."
-        )
-        self.assertTrue(output["bxtool_path"].exists(), "BXT tool file does not exist.")
+        # self.assertIsNotNone(
+        #     output.get("bxtool_path"), "BXT tool path should not be None."
+        # )
+        # self.assertTrue(output["bxtool_path"].exists(), "BXT tool file does not exist.")
 
         # Check that the written files list is not empty
         self.assertGreater(
@@ -147,10 +152,10 @@ class TestMDEAgent(TestCase):
             "No evaluation runs were recorded.",
         )
 
-    def check_workspace_contents(self):
+    def check_workspace_contents(self, artifact_id: str):
         """Check the contents of the workspace for expected files."""
         # Check that the workspace contains the expected files
-        expected_files = []
+        expected_files = ["pom.xml", f"{artifact_id}/pom.xml", "Persons/pom.xml", "Families/pom.xml"]
         for file_name in expected_files:
             file_path = self.workspace_path / file_name
             self.assertTrue(

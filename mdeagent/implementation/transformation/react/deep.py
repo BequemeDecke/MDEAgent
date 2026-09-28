@@ -1,13 +1,11 @@
 import logging
 from pathlib import Path
-from typing import Literal
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 from langchain.chat_models import BaseChatModel
-from langchain.tools import ToolRuntime, tool
 
-from mdeagent.comprehension.plan import SerializedTransformationPlan, TransformationPlan
+from mdeagent.comprehension.tools import read_transformation_plan
 from mdeagent.implementation.transformation.react.middleware import (
     TrackWrittenFilesMiddleware,
 )
@@ -24,44 +22,6 @@ You are given the interfaces of the source and target models, and the transforma
 
 A transformation plan is also provided, which describes the steps to be taken in order to perform the transformation. You should follow the plan and write the code accordingly.
 """
-
-
-Section = Literal[
-    "source_model_implementation",
-    "target_model_implementation",
-    "transformation_direction",
-    "implementation_steps",
-    "difficulties",
-    "source_model_package",
-    "target_model_package",
-    "source_model_name",
-    "target_model_name",
-]
-
-
-@tool
-def read_transformation_plan(runtime: ToolRuntime, section: Section) -> str:
-    """Tool to read the transformation plan from the runtime state. The transformation plan is stored in the runtime state as a serialized object, and this tool deserializes it and returns it as a TransformationPlan object.
-
-    Args:
-        runtime (ToolRuntime): The runtime of the agent, which contains the state where the transformation plan is stored.
-        section (Section): The section of the transformation plan to read. Can be one of "source_model_implementation", "target_model_implementation", "transformation_direction", "implementation_steps", or "difficulties".
-
-    Raises:
-        ValueError: If the transformation plan is not found in the runtime state.
-
-    Returns:
-        str: The requested section of the transformation plan as a string.
-    """
-    serialized_tp: SerializedTransformationPlan = runtime.state.get(
-        "transformation_plan"
-    )
-    logger.info(type(serialized_tp))
-    if serialized_tp is None:
-        raise ValueError("Transformation plan not found in the runtime state.")
-
-    tp: TransformationPlan = TransformationPlan.from_dict(serialized_tp)
-    return tp.data.get(section, "Section not found in the transformation plan.")
 
 
 def build_deep_agent(workspace: Path, model: BaseChatModel | None = None):
@@ -83,6 +43,10 @@ def build_deep_agent(workspace: Path, model: BaseChatModel | None = None):
         system_prompt=SYSTEM_PROMPT,
         backend=FilesystemBackend(root_dir=workspace, virtual_mode=True),
         state_schema=TransformationClassAgentState,
-        middleware=[TrackWrittenFilesMiddleware(workspace_path=workspace, file_extension_filter=".java")],
+        middleware=[
+            TrackWrittenFilesMiddleware(
+                workspace_path=workspace, file_extension_filter=".java"
+            )
+        ],
         tools=[read_transformation_plan],
     )

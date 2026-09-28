@@ -33,6 +33,7 @@ class MDEAgentState(TypedDict):
 
     # === Transformation ===
     transformation_plan: SerializedTransformationPlan | None
+    task_specification: str | None
     transformation_package_path: str | None     # This will be set by the preparation_node and used for quick evaluation
 
     # === Implementation ===

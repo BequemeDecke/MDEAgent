@@ -27,9 +27,11 @@ def create_comprehension_node(
                 "The comprehension node requires a transformation plan in the state."
             )
         transformation = TransformationPlan.from_dict(serialized_transformation)
+        task_specification = state.get("task_specification", None)
 
         input_state = ComprehensionState(
             transformation_plan=transformation.to_dict(),
+            task_specification=task_specification,
             latest_evaluation_runs={},  # TODO: Pass the latest evaluation runs of category "design"
             iteration=0,
         )
