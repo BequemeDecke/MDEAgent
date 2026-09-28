@@ -25,7 +25,7 @@ from mdeagent.mapping import (
     implementation_to_maven_project,
 )
 from mdeagent.models import build_base_model
-from mdeagent.util import with_transformation
+from mdeagent.util import cancel_if_iteration_exceeded, with_transformation
 
 
 def build_implementation_graph(
@@ -74,8 +74,14 @@ def build_implementation_graph(
 
     # 3. Wrap the evaluation node with a transformation to increment the iteration count
     evaluate_implementation = with_transformation(
-        node=evaluate_implementation_base,
-        transform=lambda state: {**state, "iteration": state.get("iteration", 0) + 1},
+        node=with_transformation(
+            node=evaluate_implementation_base,
+            transform=lambda state: {
+                **state,
+                "iteration": state.get("iteration", 0) + 1,
+            },
+        ),
+        transform=cancel_if_iteration_exceeded(max_iteration=3),
     )
 
     # 4. Build the graph

@@ -9,7 +9,7 @@ from mdeagent.evaluation.executor import EvaluationExecutor
 from mdeagent.evaluation.filter import IsErrorFilter
 from mdeagent.evaluation.node import create_evaluation_node
 from mdeagent.evaluation.pipefilter import EvaluationPipe
-from mdeagent.util import with_transformation
+from mdeagent.util import cancel_if_iteration_exceeded, with_transformation
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,10 @@ def create_reflect_comprehension_node(comprehension_agent: CompiledStateGraph):
         """
         logger.debug("Reflecting on the current transformation plan ...")
         transformation = state.get("transformation_plan")
-        task_specification = state.get("task_specification", "No specific task provided. Think about the transformation plan and how to achieve the transformation!")
+        task_specification = state.get(
+            "task_specification",
+            "No specific task provided. Think about the transformation plan and how to achieve the transformation!",
+        )
 
         input_prompt = PROMPT_TEMPLATE.format(
             task_specification=task_specification,
@@ -108,8 +111,14 @@ def build_comprehension_graph(
 
     # 2. Wrap reflect_comprehension node with iteration control
     reflect_comprehension_iteration = with_transformation(
-        node=reflect_comprehension,
-        transform=lambda state: {**state, "iteration": state.get("iteration", 0) + 1},
+        node=with_transformation(
+            node=reflect_comprehension,
+            transform=lambda state: {
+                **state,
+                "iteration": state.get("iteration", 0) + 1,
+            },
+        ),
+        transform=cancel_if_iteration_exceeded(max_iteration=3),
     )
 
     # 3. Build the comprehension subgraph

@@ -13,7 +13,7 @@ from mdeagent.preparation.explore_models import create_explore_models_node
 from mdeagent.preparation.implementations.clear_workspace import ClearWorkspaceStrategy
 from mdeagent.preparation.prepare_workspace import create_prepare_workspace_node
 from mdeagent.preparation.state import PreparationState
-from mdeagent.util import with_transformation
+from mdeagent.util import cancel_if_iteration_exceeded, with_transformation
 
 
 def build_preparation_graph(
@@ -65,10 +65,16 @@ def build_preparation_graph(
 
         benchmarx_node = create_download_benchmarx_node()
 
-    # 2. Add iteration control to prepare_workspace node
+    # 2. Add iteration control to prepare_workspace node. If three iterations are exceeded, the flow will be canceled.
     prepare_workspace_iteration = with_transformation(
-        node=prepare_workspace,
-        transform=lambda state: {**state, "iteration": state.get("iteration", 0) + 1},
+        node=with_transformation(
+            node=prepare_workspace,
+            transform=lambda state: {
+                **state,
+                "iteration": state.get("iteration", 0) + 1,
+            },
+        ),
+        transform=cancel_if_iteration_exceeded(max_iteration=3),
     )
 
     # 3. Build the preparation graph
