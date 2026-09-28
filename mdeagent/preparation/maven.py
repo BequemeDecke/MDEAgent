@@ -177,8 +177,10 @@ class MavenProject:
                 "-DarchetypeVersion=1.5",
                 "-DinteractiveMode=false",
             ],
-            check=True,
             cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if cp_process.returncode != 0:
             raise RuntimeError(

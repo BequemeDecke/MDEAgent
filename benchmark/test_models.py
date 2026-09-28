@@ -393,6 +393,12 @@ def main():
         default=5,
         help="Number of times each model should be run (default: 5)",
     )
+    parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=3,
+        help="Maximum number of models to run in parallel (default: 3)",
+    )
     args = parser.parse_args()
 
     # Configure logging
@@ -406,7 +412,7 @@ def main():
     logger.info("=" * 80)
 
     # Run the benchmark
-    results = asyncio.run(run_benchmark(num_iterations=args.num_iterations))
+    results = asyncio.run(run_benchmark(num_iterations=args.num_iterations, max_concurrency=args.max_concurrency))
 
     # Exit with appropriate code
     if results:

@@ -42,5 +42,5 @@ def create_transformation_class_generator(
 
         graph = build_deep_agent(workspace, model=kwargs.get("model"))
 
-    agent_wrapper = TransformationClassAgentWrapper(graph)
+    agent_wrapper = TransformationClassAgentWrapper(workspace, graph)
     return agent_wrapper
