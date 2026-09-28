@@ -238,7 +238,7 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
             evaluation_results=virtualized_evaluation_results,
         )
         output = await self.graph.ainvoke(input, config=self.config, version="v2")
-        written_files = [
-            virtual_to_real(Path(f)) for f in output.value["written_files"]
-        ]
-        return written_files
+        written_files = {
+            virtual_to_real(Path(f)) for f in output.value["written_files"]}
+        written_files.add(transformation_class["path"])
+        return list(written_files)
