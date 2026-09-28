@@ -150,7 +150,7 @@ def real_to_virtual(path: Path, real_root: Path, virtual_root: Path) -> Path:
     return virtual_root / relative_path
 
 
-def virtual_to_real(path: Path, real_root: Path, virtual_root: Path) -> Path:
+def virtual_to_real(path: Path, virtual_root: Path, real_root: Path) -> Path:
     """Mappt einen virtuellen Pfad auf den realen Workspace."""
     virtual_path = path.resolve(strict=False)
     resolved_virtual_root = virtual_root.resolve(strict=False)

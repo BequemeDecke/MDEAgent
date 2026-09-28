@@ -1,14 +1,21 @@
+from dataclasses import replace
+from pathlib import Path
+
 from langchain.agents import AgentState
 from langchain.messages import HumanMessage
 from langgraph.graph.state import CompiledStateGraph, RunnableConfig
 
-from mdeagent.comprehension.plan import SerializedTransformationPlan, TransformationPlan
+from mdeagent.comprehension.plan import (
+    SerializedTransformationPlan,
+    TransformationPlan,
+)
 from mdeagent.evaluation.types import EvaluationRun
 from mdeagent.evaluation.utils import format_evaluation_results
 from mdeagent.implementation.types import (
     TransformationClass,
     TransformationClassGenerator,
 )
+from mdeagent.util import real_to_virtual, virtual_to_real
 
 
 class TransformationClassAgentState(AgentState):
@@ -78,13 +85,129 @@ def create_input_prompt(
 class TransformationClassAgentWrapper(TransformationClassGenerator):
     graph: CompiledStateGraph[TransformationClassAgentState]
     config: RunnableConfig
+    workspace: Path
 
-    def __init__(self, graph: CompiledStateGraph[TransformationClassAgentState]):
+    def __init__(
+        self, workspace: Path, graph: CompiledStateGraph[TransformationClassAgentState]
+    ):
         super().__init__()
+        self.workspace = workspace
         self.graph = graph
         self.config = {
             "configurable": {"thread_id": "transformation_class_agent"},
         }
+
+    def virtualize_paths_in_class(
+        self, transformation_class: TransformationClass
+    ) -> TransformationClass:
+        """
+        Virtualizes the paths in the transformation class by replacing real paths with virtual paths.
+
+        Args:
+            transformation_class (TransformationClass): The transformation class to be virtualized.
+
+        Returns:
+            TransformationClass: The transformation class with virtualized paths.
+        """
+        v_class = transformation_class.copy()
+        virtual_root = Path(f"/{self.workspace.stem}")
+        v_class["path"] = real_to_virtual(v_class["path"], self.workspace, virtual_root)
+        return v_class
+
+    def realize_paths_in_class(
+        self, transformation_class: TransformationClass
+    ) -> TransformationClass:
+        """
+        Realizes the paths in the transformation class by replacing virtual paths with real paths.
+
+        Args:
+            transformation_class (TransformationClass): The transformation class to be realized.
+
+        Returns:
+            TransformationClass: The transformation class with realized paths.
+        """
+        r_class = transformation_class.copy()
+        virtual_root = Path(f"/{self.workspace.stem}")
+        r_class["path"] = virtual_to_real(r_class["path"], virtual_root, self.workspace)
+        return r_class
+
+    def virtualize_paths_in_evaluation_results(
+        self, evaluation_results: dict[str, EvaluationRun]
+    ) -> dict[str, EvaluationRun]:
+        """
+        Virtualizes the paths in the evaluation results by replacing real paths with virtual paths.
+
+        Args:
+            evaluation_results (dict[str, EvaluationRun]): The evaluation results to be virtualized.
+
+        Returns:
+            dict[str, EvaluationRun]: The evaluation results with virtualized paths.
+        """
+        virtualized_results = evaluation_results.copy()
+        virtual_root = Path(f"/{self.workspace.stem}")
+
+        file_existence_run = evaluation_results.get("file_existence", None)
+        if file_existence_run:
+            virtualized_results["file_existence"] = replace(
+                file_existence_run,
+                results=[
+                    replace(
+                        result,
+                        metadata={
+                            **result.metadata,
+                            "file": str(
+                                real_to_virtual(
+                                    Path(result.metadata["file"]),
+                                    self.workspace,
+                                    virtual_root,
+                                )
+                            ),
+                        },
+                    )
+                    for result in file_existence_run.results
+                ],
+            )
+
+        return virtualized_results
+
+    def realize_paths_in_evaluation_results(
+        self, evaluation_results: dict[str, EvaluationRun]
+    ) -> dict[str, EvaluationRun]:
+        """
+        Realizes the paths in the evaluation results by replacing virtual paths with real paths.
+
+        Args:
+            evaluation_results (dict[str, EvaluationRun]): The evaluation results to be realized.
+
+        Returns:
+            dict[str, EvaluationRun]: The evaluation results with realized paths.
+        """
+        realized_results = evaluation_results.copy()
+        virtual_root = Path(f"/{self.workspace.stem}")
+
+        file_existence_run = evaluation_results.get("file_existence", None)
+        if file_existence_run:
+            realized_results["file_existence"] = replace(
+                file_existence_run,
+                results=[
+                    replace(
+                        result,
+                        metadata={
+                            **result.metadata,
+                            "file": str(
+                                virtual_to_real(
+                                    Path(result.metadata["file"]),
+                                    virtual_root,
+                                    self.workspace,
+                                )
+                            ),
+                        },
+                    )
+                    for result in file_existence_run.results
+                ],
+            )
+
+        return realized_results
 
     async def synthesize_transformation_class(
         self,
@@ -93,20 +216,29 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
         specific_task: str | None = None,
         evaluation_results: dict[str, EvaluationRun] | None = None,
     ):
+        # 1. Map real paths to virtual paths
+        virtualized_class = self.virtualize_paths_in_class(transformation_class)
+        virtualized_evaluation_results = self.virtualize_paths_in_evaluation_results(
+            evaluation_results or {}
+        )
+
         input = TransformationClassAgentState(
             messages=[
                 create_input_prompt(
                     transformation_plan,
-                    transformation_class,
+                    virtualized_class,
                     specific_task=specific_task,
-                    evaluation_results=evaluation_results or {},
+                    evaluation_results=virtualized_evaluation_results,
                 )
             ],
             written_files=[],
             specific_task=specific_task,
             transformation_plan=transformation_plan.to_dict(),
-            transformation_class=transformation_class,
-            evaluation_results=evaluation_results or {},
+            transformation_class=virtualized_class,
+            evaluation_results=virtualized_evaluation_results,
         )
         output = await self.graph.ainvoke(input, config=self.config, version="v2")
-        return output.value["written_files"]
+        written_files = [
+            virtual_to_real(Path(f)) for f in output.value["written_files"]
+        ]
+        return written_files

@@ -1,7 +1,7 @@
 from pathlib import Path
 from unittest import TestCase
 
-from mdeagent.util import real_to_virtual
+from mdeagent.util import real_to_virtual, virtual_to_real
 
 
 class TestPathMapping(TestCase):
@@ -25,7 +25,7 @@ class TestPathMapping(TestCase):
         # Test case 2: Path is within the virtual root
         virtual_path = virtual_root / "subdir" / "file.txt"
         expected_real_path = real_root / "subdir" / "file.txt"
-        actual_path = real_to_virtual(virtual_path, virtual_root, real_root)
+        actual_path = virtual_to_real(virtual_path, virtual_root, real_root)
 
         self.assertEqual(
             actual_path, expected_real_path
