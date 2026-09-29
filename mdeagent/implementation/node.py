@@ -15,8 +15,6 @@ def create_implementation_node(
 ):
     """Creates a function that calls the implementation agent with the necessary state and returns the updated state after the implementation agent has done its work.
 
-    TODO: Use the task_specification for the user to provide instructions on how to implement the transformation
-
     Args:
         agent (CompiledStateGraph): The implementation subgraph
         benchmarx_path (str | None): The path to the BenchmarX tool, if used. If None, the bxtool_path from the state will be used.
@@ -40,6 +38,7 @@ def create_implementation_node(
             raise ValueError(
                 "Transformation package path is required for the implementation agent."
             )
+        task_specification = state.get("task_specification", "")
         bxtool_path_from_state = state.get("bxtool_path")
         # When BenchmarX is being used, we don't need a separate bxtool adapter
         # The bxtool_path in state points to the adapter file location (used even with BenchmarX)
@@ -67,7 +66,7 @@ def create_implementation_node(
         input_state = ImplementationState(
             transformation_plan=serialized_tp,
             transformation_class=transformation_class,
-            task_specification="",  # TODO: This field will be used by a higher component to provide instructions for the implementation agent
+            task_specification=task_specification,
             maven_project_path=maven_project_path,
             bxtool_path=bxtool_path_from_state,  # Always provided per state definition
             written_files=[],
