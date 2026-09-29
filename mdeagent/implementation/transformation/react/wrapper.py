@@ -93,7 +93,7 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
     ):
         super().__init__()
         self.workspace = workspace
-        self._virtual_root = Path(f"/{self.workspace.stem}")
+        self._virtual_root = Path("/")
         self.graph = graph
         self.config = {
             "configurable": {"thread_id": "transformation_class_agent"},

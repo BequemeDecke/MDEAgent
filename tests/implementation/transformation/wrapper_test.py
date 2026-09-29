@@ -19,7 +19,7 @@ class TestReactWrapper(TestCase):
 
     def test_virtualize_paths_in_class(self):
         workspace = Path("/mock/workspace")
-        virtual_root = Path("/workspace")
+        virtual_root = Path("/")
 
         # Create a mock transformation class with a real path
         transformation_class = TransformationClass(
@@ -42,7 +42,7 @@ class TestReactWrapper(TestCase):
 
     def test_realize_paths_in_class(self):
         workspace = Path("/mock/workspace")
-        virtual_root = Path("/workspace")
+        virtual_root = Path("/")
 
         # Create a mock transformation class with a virtual path
         transformation_class = TransformationClass(
@@ -65,7 +65,7 @@ class TestReactWrapper(TestCase):
 
     def test_virtualize_paths_in_evaluation_results(self):
         workspace = Path("/mock/workspace")
-        virtual_root = Path("/workspace")
+        virtual_root = Path("/")
 
         # Create a mock evaluation results dictionary with a file existence run
         evaluation_results = {
@@ -108,7 +108,7 @@ class TestReactWrapper(TestCase):
 
     def test_realize_paths_in_evaluation_results(self):
         workspace = Path("/mock/workspace")
-        virtual_root = Path("/workspace")
+        virtual_root = Path("/")
 
         # Create a mock evaluation results dictionary with a file existence run
         evaluation_results = {
@@ -180,9 +180,9 @@ class TestReactWrapper(TestCase):
             return_value=SimpleNamespace(
                 value={
                     "written_files": [
-                        "/workspace/src/TestClass.java",
-                        "/workspace/src/Source.java",
-                        "/workspace/src/Target.java",
+                        "/src/TestClass.java",
+                        "/src/Source.java",
+                        "/src/Target.java",
                     ]
                 }
             )
