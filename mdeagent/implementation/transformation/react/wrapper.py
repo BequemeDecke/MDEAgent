@@ -9,7 +9,7 @@ from mdeagent.comprehension.plan import (
     SerializedTransformationPlan,
     TransformationPlan,
 )
-from mdeagent.evaluation.types import EvaluationRun
+from mdeagent.evaluation.types import EvaluationResult, EvaluationRun
 from mdeagent.evaluation.utils import format_evaluation_results
 from mdeagent.implementation.types import (
     TransformationClass,
@@ -214,31 +214,67 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
         transformation_plan: TransformationPlan,
         transformation_class: TransformationClass,
         specific_task: str | None = None,
-        evaluation_results: dict[str, EvaluationRun] | None = None,
-    ):
+        evaluation_results: list[EvaluationResult] | None = None,
+    ) -> list[Path]:
         # 1. Map real paths to virtual paths
         virtualized_class = self.virtualize_paths_in_class(transformation_class)
-        virtualized_evaluation_results = self.virtualize_paths_in_evaluation_results(
-            evaluation_results or {}
+
+        # 2. Virtualize file paths inside evaluation results (if any)
+        virtualized_results: list[EvaluationResult] = []
+        if evaluation_results:
+            for result in evaluation_results:
+                meta = result.metadata.copy()
+                file_path = meta.get("file")
+                if file_path:
+                    meta["file"] = real_to_virtual(
+                        Path(file_path), self.workspace, self._virtual_root
+                    )
+                virtualized_results.append(
+                    replace(result, metadata=meta)
+                )
+
+        # 3. Format as text for the prompt
+        eval_text = (
+            format_evaluation_results(virtualized_results)
+            if virtualized_results
+            else "No evaluation results provided."
         )
 
         input = TransformationClassAgentState(
             messages=[
-                create_input_prompt(
+                self._create_agent_prompt(
                     transformation_plan,
                     virtualized_class,
                     specific_task=specific_task,
-                    evaluation_results=virtualized_evaluation_results,
+                    evaluation_results_text=eval_text,
                 )
             ],
             written_files=[],
             specific_task=specific_task,
             transformation_plan=transformation_plan.to_dict(),
             transformation_class=virtualized_class,
-            evaluation_results=virtualized_evaluation_results,
         )
         output = await self.graph.ainvoke(input, config=self.config, version="v2")
         written_files = {
             virtual_to_real(Path(f), self._virtual_root, self.workspace) for f in output.value["written_files"]}
         written_files.add(transformation_class["path"])
         return list(written_files)
+
+    def _create_agent_prompt(
+        self,
+        transformation_plan: TransformationPlan,
+        transformation_class: TransformationClass,
+        specific_task: str | None,
+        evaluation_results_text: str,
+    ) -> HumanMessage:
+        """Create the input prompt for the coding agent."""
+        content = INPUT_PROMPT_TEMPLATE.format(
+            source_model_package=transformation_plan.data["source_model_package"],
+            target_model_package=transformation_plan.data["target_model_package"],
+            transformation_package=transformation_class["package"],
+            transformation_class_name=transformation_class["name"],
+            transformation_class_path=transformation_class["path"],
+            specific_task=specific_task or "No specific task provided.",
+            evaluation_results_text=evaluation_results_text,
+        )
+        return HumanMessage(content=content)

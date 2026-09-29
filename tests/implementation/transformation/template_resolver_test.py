@@ -192,60 +192,19 @@ class TestEvaluationResultFormatting(TestCase):
             "No evaluation results available.",
         )
 
-    def test_dict_with_empty_results(self):
-        """Dict with runs that have empty results returns default message."""
-        from datetime import UTC, datetime
-        from mdeagent.evaluation.types import EvaluationRun, EvaluationResult
-
-        run = EvaluationRun(
-            started_at=datetime.now(tz=UTC),
-            execution_time_ms=0,
-            iteration=1,
-            results=[],
-            errors=[],
-            category="execution",
-        )
-        self.assertEqual(
-            TemplateResolver._format_evaluation_results({"file_existence": run}),
-            "No evaluation results available.",
-        )
-
-    def test_dict_with_results(self):
-        """Dict with runs containing results is formatted."""
-        from datetime import UTC, datetime
-        from mdeagent.evaluation.types import EvaluationRun, EvaluationResult
-
-        result = EvaluationResult(
-            content="File not found: Test.java",
-            metadata={"success": False, "include_in_report": True},
-        )
-        run = EvaluationRun(
-            started_at=datetime.now(tz=UTC),
-            execution_time_ms=100,
-            iteration=1,
-            results=[result],
-            errors=[],
-            category="execution",
-        )
-
-        text = TemplateResolver._format_evaluation_results({"file_existence": run})
-        self.assertIn("[FAILURE]", text)
-        self.assertIn("File not found: Test.java", text)
-
-    def test_list_of_results(self):
-        """List of EvaluationResult is formatted directly."""
+    def test_list_with_results(self):
+        """List with EvaluationResult objects is formatted correctly."""
         from mdeagent.evaluation.types import EvaluationResult
 
         results = [
             EvaluationResult(
-                content="Compilation error on line 5",
+                content="File not found: Test.java",
                 metadata={"success": False, "include_in_report": True},
             ),
         ]
         text = TemplateResolver._format_evaluation_results(results)
         self.assertIn("[FAILURE]", text)
-        self.assertIn("Compilation error", text)
-
+        self.assertIn("File not found: Test.java", text)
 
 # ─── TestFieldsToInfo ───────────────────────────────────────────────
 
@@ -422,25 +381,18 @@ class TestSynthesizeTransformationClass(TestCase):
 
     def test_evaluation_results_passed_to_llm(self):
         """Evaluation results are included in the LLM prompts."""
-        from datetime import UTC, datetime
-        from mdeagent.evaluation.types import EvaluationRun, EvaluationResult
+        from mdeagent.evaluation.types import EvaluationResult
 
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
             tc_path = workspace / "Test.java"
 
-            eval_result = EvaluationResult(
-                content="Compilation error",
-                metadata={"success": False, "include_in_report": True},
-            )
-            eval_run = EvaluationRun(
-                started_at=datetime.now(tz=UTC),
-                execution_time_ms=100,
-                iteration=1,
-                results=[eval_result],
-                errors=[],
-                category="execution",
-            )
+            eval_results = [
+                EvaluationResult(
+                    content="Compilation error",
+                    metadata={"success": False, "include_in_report": True},
+                ),
+            ]
 
             resolver = TemplateResolver()
             plan = _make_plan()
@@ -452,7 +404,7 @@ class TestSynthesizeTransformationClass(TestCase):
                     resolver.synthesize_transformation_class(
                         transformation_plan=plan,
                         transformation_class=tc,
-                        evaluation_results={"java_compilation": eval_run},
+                        evaluation_results=eval_results,
                     )
                 )
 

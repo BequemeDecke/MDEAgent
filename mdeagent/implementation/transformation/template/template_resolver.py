@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from mdeagent.comprehension.plan import TransformationPlan
+from mdeagent.evaluation.types import EvaluationResult
 from mdeagent.evaluation.utils import format_evaluation_results
 from mdeagent.implementation.transformation.template.generator import (
     BackwardMethodBody,
@@ -68,19 +69,8 @@ class TemplateResolver(TransformationClassGenerator):
         transformation_plan: TransformationPlan,
         transformation_class: TransformationClass,
         specific_task: str | None = None,
-        evaluation_results: Any | None = None,
+        evaluation_results: list[EvaluationResult] | None = None,
     ) -> list[Path]:
-        """Generate and write the transformation class from a template.
-
-        Args:
-            transformation_plan: Describes source/target models and transformation steps.
-            transformation_class: Contains the class name, package and output path.
-            specific_task: Optional task description guiding the generation.
-            evaluation_results: Prior evaluation results (dict or list).
-
-        Returns:
-            List of paths that were written (typically only the transformation class).
-        """
         # 1. Derive metadata from the plan (requirement 1)
         metadata = self._extract_metadata(transformation_plan)
 
@@ -241,24 +231,11 @@ class TemplateResolver(TransformationClassGenerator):
         return None
 
     @staticmethod
-    def _format_evaluation_results(results: Any | None) -> str:
+    def _format_evaluation_results(results: list[EvaluationResult] | None) -> str:
         """Convert evaluation results to a readable string for the prompt."""
-        if results is None:
+        if results is None or not results:
             return "No evaluation results available."
-
-        if isinstance(results, list):
-            return format_evaluation_results(results)
-
-        if isinstance(results, dict):
-            from mdeagent.evaluation.types import EvaluationRun
-
-            all_results: list[Any] = []
-            for run in results.values():
-                if isinstance(run, EvaluationRun):
-                    all_results.extend(run.results)
-            return format_evaluation_results(all_results)
-
-        return str(results)
+        return format_evaluation_results(results)
 
     @staticmethod
     def _fields_to_info(fields: list[dict[str, str]]) -> str:
