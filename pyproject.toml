@@ -1,7 +1,7 @@
 [project]
-name = "mdagent"
-version = "0.1.0"
-description = "Add your description here"
+name = "mdeagent"
+version = "0.2.0"
+description = "A framework for model-driven engineering agents."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
