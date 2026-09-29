@@ -76,8 +76,10 @@ class TestFormatJavaFiles(TestCase):
 
             mock_run.assert_called_once_with(
                 ["mvn", "spotless:apply"],
+                capture_output=True,
                 cwd=workspace,
-                check=True,
+                check=False,
+                text=True,
             )
 
     @patch("subprocess.run")
