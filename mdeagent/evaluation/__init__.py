@@ -18,6 +18,8 @@ __all__ = [
     "StateToEvaluationMapper",
     "ToolInstalledEvaluation",
     "ToolInstalledSchema",
+    "TransformationCodeEvaluation",
+    "TransformationCodeSchema",
     "WorkspaceStructureEvaluation",
     "WorkspaceStructureSchema",
 ]

@@ -8,6 +8,10 @@ from .tool_installed import (
     ToolInstalledEvaluation,
     ToolInstalledSchema,
 )
+from .transformation_code import (
+    TransformationCodeEvaluation,
+    TransformationCodeSchema,
+)
 from .workspace_structure import (
     WorkspaceStructureEvaluation,
     WorkspaceStructureSchema,
@@ -22,6 +26,8 @@ __all__ = [
     "PlanCompleteSchema",
     "ToolInstalledEvaluation",
     "ToolInstalledSchema",
+    "TransformationCodeEvaluation",
+    "TransformationCodeSchema",
     "WorkspaceStructureEvaluation",
     "WorkspaceStructureSchema",
 ]
