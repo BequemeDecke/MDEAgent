@@ -49,11 +49,12 @@ class TemplateResolver(TransformationClassGenerator):
     which is rendered against the Jinja template and written to disk.
     """
 
-    def __init__(self, llm: Any | None = None) -> None:
+    def __init__(self, llm: Any | None = None, workspace: Path | None = None) -> None:
         """Initialize the resolver.
 
         Args:
             llm: Optional language model for structured generation.
+            workspace: Optional workspace path (reserved for future use).
         """
         self.llm = llm
         self._resolver = TransformationClassTemplateResolver()

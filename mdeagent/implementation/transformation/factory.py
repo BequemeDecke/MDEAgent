@@ -16,9 +16,11 @@ def create_transformation_class_generator(
         )
 
     if strategy == "template_based":
-        raise NotImplementedError(
-            "The 'template_based' strategy is not yet implemented. Please use 'deep_agent' or 'hybrid_agent'."
+        from mdeagent.implementation.transformation.template.template_resolver import (
+            TemplateResolver,
         )
+
+        return TemplateResolver(llm=kwargs.get("model"), workspace=workspace)
 
     if strategy == "pi":
         from mdeagent.implementation.transformation.external.pi import (
