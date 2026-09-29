@@ -8,6 +8,7 @@ notebooks/*/test_results/
 notebooks/*/templates/
 notebooks/graph_prints/
 notebooks/benchmark_results/
+notebooks/*.png
 
 .mdeagent-tests/test-executions/
 
