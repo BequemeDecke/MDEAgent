@@ -86,12 +86,14 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
     graph: CompiledStateGraph[TransformationClassAgentState]
     config: RunnableConfig
     workspace: Path
+    _virtual_root: Path
 
     def __init__(
         self, workspace: Path, graph: CompiledStateGraph[TransformationClassAgentState]
     ):
         super().__init__()
         self.workspace = workspace
+        self._virtual_root = Path(f"/{self.workspace.stem}")
         self.graph = graph
         self.config = {
             "configurable": {"thread_id": "transformation_class_agent"},
@@ -110,8 +112,7 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
             TransformationClass: The transformation class with virtualized paths.
         """
         v_class = transformation_class.copy()
-        virtual_root = Path(f"/{self.workspace.stem}")
-        v_class["path"] = real_to_virtual(v_class["path"], self.workspace, virtual_root)
+        v_class["path"] = real_to_virtual(v_class["path"], self.workspace, self._virtual_root)
         return v_class
 
     def realize_paths_in_class(
@@ -127,8 +128,7 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
             TransformationClass: The transformation class with realized paths.
         """
         r_class = transformation_class.copy()
-        virtual_root = Path(f"/{self.workspace.stem}")
-        r_class["path"] = virtual_to_real(r_class["path"], virtual_root, self.workspace)
+        r_class["path"] = virtual_to_real(r_class["path"], self._virtual_root, self.workspace)
         return r_class
 
     def virtualize_paths_in_evaluation_results(
@@ -144,7 +144,7 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
             dict[str, EvaluationRun]: The evaluation results with virtualized paths.
         """
         virtualized_results = evaluation_results.copy()
-        virtual_root = Path(f"/{self.workspace.stem}")
+        virtual_root = self._virtual_root
 
         file_existence_run = evaluation_results.get("file_existence", None)
         if file_existence_run:
@@ -183,7 +183,7 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
             dict[str, EvaluationRun]: The evaluation results with realized paths.
         """
         realized_results = evaluation_results.copy()
-        virtual_root = Path(f"/{self.workspace.stem}")
+        virtual_root = self._virtual_root
 
         file_existence_run = evaluation_results.get("file_existence", None)
         if file_existence_run:
@@ -239,6 +239,6 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
         )
         output = await self.graph.ainvoke(input, config=self.config, version="v2")
         written_files = {
-            virtual_to_real(Path(f)) for f in output.value["written_files"]}
+            virtual_to_real(Path(f), self._virtual_root, self.workspace) for f in output.value["written_files"]}
         written_files.add(transformation_class["path"])
         return list(written_files)

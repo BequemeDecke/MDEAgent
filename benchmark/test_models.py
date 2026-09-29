@@ -13,6 +13,8 @@ import json
 import logging
 import sys
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -44,20 +46,13 @@ TASK_SPECIFICATION = (
 
 
 def load_models(csv_path: str | Path) -> list[str]:
-    """Load model IDs from the models CSV file.
-
-    Args:
-        csv_path: Path to models.csv
-
-    Returns:
-        List of model IDs (from the 'id' column)
-    """
+    """Load model IDs from the models CSV file."""
     csv_path = Path(csv_path)
     if not csv_path.exists():
         raise FileNotFoundError(f"Models file not found: {csv_path}")
 
     models = []
-    with open(csv_path, "r", encoding="utf-8-sig") as f:  # utf-8-sig to handle BOM
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             model_id = row.get("id", "").strip()
@@ -67,16 +62,7 @@ def load_models(csv_path: str | Path) -> list[str]:
 
 
 def build_model(model_id: str) -> Any:
-    """Build a LangChain chat model for the given model ID.
-
-    Uses openai provider with the base URL and API key from config.
-
-    Args:
-        model_id: The model identifier (e.g., 'Qwen/Qwen3.8-27B-FP8')
-
-    Returns:
-        A BaseChatModel instance
-    """
+    """Build a LangChain chat model for the given model ID."""
     from mdeagent.config import Config
 
     config = Config.get_instance()
@@ -92,6 +78,35 @@ def build_model(model_id: str) -> Any:
     )
 
 
+def _run_single_iteration_sync(model_id: str, iteration: int) -> dict[str, Any]:
+    """Run a single benchmark iteration in a new asyncio event loop (thread-safe)."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_run_single_iteration(model_id, iteration))
+    finally:
+        loop.close()
+
+
+async def _run_single_iteration(model_id: str, iteration: int) -> dict[str, Any]:
+    """Run a single benchmark iteration for one model with its own workspace."""
+    with tempfile.TemporaryDirectory(prefix="mdeagent-benchmark-") as temp_dir:
+        workspace_path = Path(temp_dir)
+        langfuse_client_instance, langfuse_callback = build_langfuse_client()
+
+        try:
+            result = await run_benchmark_model(
+                model_id=model_id,
+                workspace_path=workspace_path,
+                langfuse_client=langfuse_client_instance,
+                langfuse_callback=langfuse_callback,
+                iteration=iteration,
+            )
+            trace_info = collect_trace_info(langfuse_client_instance, model_id)
+            result["trace_id"] = trace_info.get("trace_id")
+            result["trace_url"] = trace_info.get("trace_url")
+            return result
+        finally:
+            langfuse_client_instance.flush()
 async def run_benchmark_model(
     model_id: str,
     workspace_path: Path,
@@ -99,18 +114,7 @@ async def run_benchmark_model(
     langfuse_callback: LangfuseCallbackHandler,
     iteration: int = 1,
 ) -> dict[str, Any]:
-    """Run a single benchmark iteration for one model.
-
-    Args:
-        model_id: The model ID to benchmark
-        workspace_path: Path to the temporary workspace
-        langfuse_client: Langfuse client for trace collection
-        langfuse_callback: Langfuse callback handler
-        iteration: Iteration number (for repeated runs)
-
-    Returns:
-        Dictionary with benchmark results
-    """
+    """Run a single benchmark iteration for one model."""
     result: dict[str, Any] = {
         "model_id": model_id,
         "iteration": iteration,
@@ -128,11 +132,9 @@ async def run_benchmark_model(
     }
 
     try:
-        # 1. Build the model
         logger.info(f"Building model: {model_id}")
         model = build_model(model_id)
 
-        # 2. Build the MDEAgent with the model
         logger.info(f"Building MDEAgent for model: {model_id}")
         agent_builder = build_mdeagent(
             workspace_path=workspace_path,
@@ -141,7 +143,6 @@ async def run_benchmark_model(
         )
         agent = agent_builder.compile(name=f"MDEAgent-Benchmark-{model_id.replace('/', '-')}-iter{iteration}")
 
-        # 3. Create initial state
         initial_state = MDEAgentState(
             source_model_path=SOURCE_MODEL_PATH,
             target_model_path=TARGET_MODEL_PATH,
@@ -151,19 +152,16 @@ async def run_benchmark_model(
             iteration=1,
         )
 
-        # 4. Run the agent with LangFuse callback
         callbacks = [langfuse_callback]
         logger.info(f"Running MDEAgent for model: {model_id}")
         output = await agent.ainvoke(
             initial_state, config={"callbacks": callbacks}, version="v2"
         )
 
-        # 5. Collect results from output state
         result["success"] = True
         result["trace_id"] = langfuse_callback.trace_id if hasattr(langfuse_callback, "trace_id") else None
         result["iterations_completed"] = output.value.get("iteration", 1)
 
-        # Extract state values
         if output.value.get("transformation_class_path"):
             result["transformation_class_path"] = str(output.value["transformation_class_path"])
         if output.value.get("bxtool_path"):
@@ -184,7 +182,6 @@ async def run_benchmark_model(
         logger.exception(f"Benchmark failed for model {model_id}: {e}")
 
     finally:
-        # Always flush LangFuse
         if langfuse_client:
             langfuse_client.flush()
 
@@ -192,26 +189,12 @@ async def run_benchmark_model(
 
 
 def collect_trace_info(langfuse_client: Langfuse, model_id: str) -> dict[str, str]:
-    """Collect trace information from LangFuse for a specific model benchmark.
-
-    Args:
-        langfuse_client: Langfuse client instance
-        model_id: The model ID to find traces for
-
-    Returns:
-        Dictionary with trace_id and trace_url
-    """
+    """Collect trace information from LangFuse for a specific model benchmark."""
     trace_info = {"trace_id": None, "trace_url": None}
 
     try:
-        # Search for traces by name (the compiled agent name contains model_id)
-        # The agent name format is "MDEAgent-Benchmark-{model_id}"
         agent_name = f"MDEAgent-Benchmark-{model_id.replace('/', '-')}"
-
-        traces = langfuse_client.api.trace.list(
-            name=agent_name,
-            limit=1,
-        )
+        traces = langfuse_client.api.trace.list(name=agent_name, limit=1)
 
         if traces.data and len(traces.data) > 0:
             trace = traces.data[0]
@@ -227,64 +210,18 @@ def collect_trace_info(langfuse_client: Langfuse, model_id: str) -> dict[str, st
     return trace_info
 
 
-async def _run_single_iteration(
-    model_id: str,
-    iteration: int,
-) -> dict[str, Any]:
-    """Run a single benchmark iteration for one model with its own workspace.
+def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> list[dict[str, Any]]:
+    """Run the full benchmark across all models using threading.
 
-    Each iteration gets its own temporary workspace and LangFuse callback.
-
-    Args:
-        model_id: The model ID to benchmark
-        iteration: Iteration number
-
-    Returns:
-        Dictionary with benchmark results
-    """
-    # Create temporary workspace (will be deleted automatically)
-    with tempfile.TemporaryDirectory(prefix="mdeagent-benchmark-") as temp_dir:
-        workspace_path = Path(temp_dir)
-
-        # Build LangFuse callback for this iteration
-        langfuse_client_instance, langfuse_callback = build_langfuse_client()
-
-        try:
-            # Run the benchmark
-            result = await run_benchmark_model(
-                model_id=model_id,
-                workspace_path=workspace_path,
-                langfuse_client=langfuse_client_instance,
-                langfuse_callback=langfuse_callback,
-                iteration=iteration,
-            )
-
-            # Collect trace information from LangFuse
-            trace_info = collect_trace_info(langfuse_client_instance, model_id)
-            result["trace_id"] = trace_info.get("trace_id")
-            result["trace_url"] = trace_info.get("trace_url")
-
-            return result
-
-        finally:
-            # Ensure flush happens even if result collection fails
-            langfuse_client_instance.flush()
-
-
-async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> list[dict[str, Any]]:
-    """Run the full benchmark across all models.
-
-    Each model is run `num_iterations` times in separate workspaces.
-    Models run in parallel with controlled concurrency.
+    All iterations across all models run in parallel, controlled by max_concurrency.
 
     Args:
         num_iterations: Number of times each model should be run (default: 5)
-        max_concurrency: Maximum number of models to run in parallel (default: 3)
+        max_concurrency: Maximum number of tasks to run in parallel (default: 3)
 
     Returns:
         List of result dictionaries, one per (model, iteration) pair
     """
-    # 1. Load models
     logger.info(f"Loading models from {MODELS_CSV}")
     models = load_models(MODELS_CSV)
     logger.info(f"Loaded {len(models)} models: {models[:5]}..." if len(models) > 5 else f"Loaded {len(models)} models: {models}")
@@ -293,7 +230,6 @@ async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> li
         logger.error("No models found in models.csv")
         return []
 
-    # 3. Verify source model paths exist
     if not SOURCE_MODEL_PATH.exists():
         logger.error(f"Source model path not found: {SOURCE_MODEL_PATH}")
         return []
@@ -301,75 +237,81 @@ async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> li
         logger.error(f"Target model path not found: {TARGET_MODEL_PATH}")
         return []
 
-    # 4. Run benchmark with parallelization
-    # Inner semaphore limits total concurrent iterations across all models
-    iteration_semaphore = asyncio.Semaphore(max_concurrency)
-    results: list[dict[str, Any]] = []
+    # Build task list: one task per (model, iteration)
     total_tasks = len(models) * num_iterations
-    completed = 0
+    tasks = []
+    for model_id in models:
+        for iteration in range(1, num_iterations + 1):
+            tasks.append((model_id, iteration))
 
-    async def run_with_semaphore(model_id: str, iteration: int) -> dict[str, Any]:
-        """Run a single benchmark iteration with concurrency limit."""
+    logger.info(f"Running {total_tasks} tasks with max_concurrency={max_concurrency}")
+
+    results: list[dict[str, Any]] = []
+    completed = 0
+    completed_lock = threading.Lock()  # thread-safe completed counter
+    results_lock = threading.Lock()  # thread-safe results collection
+
+    def _run_and_track(model_id: str, iteration: int) -> dict[str, Any]:
+        """Run a single task, write results to its own file, track progress thread-safely."""
         nonlocal completed
-        async with iteration_semaphore:
-            logger.info(f"[Run {completed + 1}/{total_tasks}] Starting: {model_id} (iter {iteration})")
-            result = await _run_single_iteration(
-                model_id=model_id,
-                iteration=iteration,
-            )
+        safe_name = model_id.replace("/", "-")
+        output_path = RESULTS_DIR / f"{safe_name}_iter{iteration}.json"
+
+        try:
+            result = _run_single_iteration_sync(model_id, iteration)
+
+        except Exception as e:
+            logger.exception(f"Unexpected error for {model_id} iter {iteration}: {e}")
+            result = {
+                "model_id": model_id,
+                "iteration": iteration,
+                "workspace_path": None,
+                "timestamp": datetime.now(tz=UTC).isoformat(),
+                "success": False,
+                "error": {"type": type(e).__name__, "message": str(e)},
+                "trace_id": None,
+                "trace_url": None,
+                "transformation_class_path": None,
+                "bxtool_path": None,
+                "written_files": [],
+                "evaluation_runs": [],
+                "iterations_completed": 0,
+            }
+
+        # Common: write file, log progress, collect results
+        with completed_lock:
             completed += 1
             status = "✓ SUCCESS" if result["success"] else f"✗ FAILED: {result.get('error', {}).get('message', 'Unknown error')}"
             logger.info(f"[Run {completed}/{total_tasks}] {model_id} (iter {iteration}): {status}")
-            return result
 
-    # 5. Run all iterations for each model, saving results after each model completes
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    for model_id in models:
-        # Create tasks for all iterations of this model
-        model_tasks = [
-            run_with_semaphore(model_id, iteration)
-            for iteration in range(1, num_iterations + 1)
-        ]
+        with results_lock:
+            results.append(result)
 
-        # Execute all iterations for this model
-        model_results_raw = await asyncio.gather(*model_tasks, return_exceptions=True)
+        # Write results to the iteration-specific file (thread-safe: each task has its own file)
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, indent=2, ensure_ascii=False, default=str)
+            logger.info(f"✓ {model_id} iter {iteration}: saved to {output_path}")
+        except Exception as e:
+            logger.exception(f"Failed to write result for {model_id} iter {iteration}: {e}")
 
-        # Collect results, handling any exceptions
-        model_results = []
-        for result in model_results_raw:
-            if isinstance(result, Exception):
-                logger.error(f"Unexpected error in benchmark task: {result}")
-                model_results.append({
-                    "model_id": model_id,
-                    "iteration": 0,
-                    "success": False,
-                    "error": {"type": type(result).__name__, "message": str(result)},
-                    "trace_id": None,
-                    "trace_url": None,
-                    "workspace_path": None,
-                    "timestamp": datetime.now(tz=UTC).isoformat(),
-                    "transformation_class_path": None,
-                    "bxtool_path": None,
-                    "written_files": [],
-                    "evaluation_runs": [],
-                    "iterations_completed": 0,
-                })
-            else:
-                model_results.append(result)
+        return result
 
-        # Save results for this model immediately
-        safe_name = model_id.replace("/", "-")
-        output_path = RESULTS_DIR / f"results_{safe_name}.json"
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(model_results, f, indent=2, ensure_ascii=False, default=str)
-        logger.info(f"Saved {len(model_results)} results for {model_id} to {output_path}")
+    # Submit all tasks and wait for completion
+    with ThreadPoolExecutor(max_workers=max_concurrency, thread_name_prefix="bench") as executor:
+        future_to_task = {
+            executor.submit(_run_and_track, model_id, iteration): (model_id, iteration)
+            for model_id, iteration in tasks
+        }
 
-        # Add to overall results
-        results.extend(model_results)
-
-    logger.info("Benchmark complete.")
+        for future in as_completed(future_to_task):
+            try:
+                future.result()  # Re-raise exceptions
+            except Exception as e:
+                logger.exception(f"Future error: {e}")
 
     # Summary statistics
+    logger.info("Benchmark complete.")
     success_count = sum(1 for r in results if r["success"])
     failure_count = len(results) - success_count
     logger.info(f"Summary: {success_count} succeeded, {failure_count} failed out of {len(results)} runs")
@@ -379,7 +321,6 @@ async def run_benchmark(num_iterations: int = 5, max_concurrency: int = 3) -> li
 
 def main():
     """Main entry point for the benchmark script."""
-    # Parse command-line arguments
     parser = argparse.ArgumentParser(description="MDEAgent Benchmark")
     parser.add_argument(
         "--log-level",
@@ -397,11 +338,10 @@ def main():
         "--max-concurrency",
         type=int,
         default=3,
-        help="Maximum number of models to run in parallel (default: 3)",
+        help="Maximum number of tasks to run in parallel (default: 3)",
     )
     args = parser.parse_args()
 
-    # Configure logging
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -411,10 +351,8 @@ def main():
     logger.info("MDEAgent Benchmark Started")
     logger.info("=" * 80)
 
-    # Run the benchmark
-    results = asyncio.run(run_benchmark(num_iterations=args.num_iterations, max_concurrency=args.max_concurrency))
+    results = run_benchmark(num_iterations=args.num_iterations, max_concurrency=args.max_concurrency)
 
-    # Exit with appropriate code
     if results:
         success_count = sum(1 for r in results if r["success"])
         if success_count == len(results):

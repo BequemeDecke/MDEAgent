@@ -1,6 +1,9 @@
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
+from unittest.mock import AsyncMock, Mock
 
 from mdeagent.evaluation.types import EvaluationResult, EvaluationRun
 from mdeagent.implementation.transformation.react.wrapper import (
@@ -145,3 +148,60 @@ class TestReactWrapper(TestCase):
             Path(realized_results["file_existence"].results[0].metadata["file"]),
             expected_real_path,
         )
+
+    def test_synthesize_transformation_class_returns_all_written_files(self):
+        workspace = Path("/mock/workspace")
+        transformation_class_path = workspace / "src" / "TestClass.java"
+        transformation_class = TransformationClass(
+            name="TestClass",
+            path=transformation_class_path,
+            package="test_package",
+        )
+        plan_data = {
+            "source_model_package": "source",
+            "target_model_package": "target",
+            "iteration": 1,
+            "source_model_implementation": "source implementation",
+            "target_model_implementation": "target implementation",
+            "transformation_direction": "source to target",
+            "difficulties": "none",
+            "implementation_steps": "implement the transformation",
+        }
+        transformation_plan = Mock()
+        transformation_plan.data = plan_data
+        transformation_plan.to_dict.return_value = {
+            "data": plan_data,
+            "parser": {},
+            "template": Path("templates"),
+        }
+
+        graph = Mock()
+        graph.ainvoke = AsyncMock(
+            return_value=SimpleNamespace(
+                value={
+                    "written_files": [
+                        "/workspace/src/TestClass.java",
+                        "/workspace/src/Source.java",
+                        "/workspace/src/Target.java",
+                    ]
+                }
+            )
+        )
+        wrapper = TransformationClassAgentWrapper(workspace, graph)
+
+        written_files = asyncio.run(
+            wrapper.synthesize_transformation_class(
+                transformation_plan,
+                transformation_class,
+            )
+        )
+
+        self.assertEqual(
+            set(written_files),
+            {
+                transformation_class_path,
+                workspace / "src" / "Source.java",
+                workspace / "src" / "Target.java",
+            },
+        )
+        graph.ainvoke.assert_awaited_once()
