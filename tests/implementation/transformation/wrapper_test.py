@@ -67,25 +67,24 @@ class TestReactWrapper(TestCase):
         workspace = Path("/mock/workspace")
         virtual_root = Path("/")
 
-        # Create a mock evaluation results dictionary with a file existence run
-        evaluation_results = {
-            "file_existence": EvaluationRun(
-                started_at=datetime.now(UTC),
-                execution_time_ms=100,
-                iteration=1,
-                errors=[],
-                results=[
-                    EvaluationResult(
-                        content="File exists: /mock/workspace/subdir/test_file.py",
-                        metadata={
-                            "file": str(workspace / "subdir" / "test_file.py"),
-                            "success": True,
-                            "include_in_report": False,
-                        },
-                    )
-                ]
-            )
-        }
+        # Create mock evaluation results with file paths
+        evaluation_results = [
+            EvaluationResult(
+                content="File exists: /mock/workspace/subdir/test_file.py",
+                metadata={
+                    "file": str(workspace / "subdir" / "test_file.py"),
+                    "success": True,
+                    "include_in_report": False,
+                },
+            ),
+            EvaluationResult(
+                content="No file metadata",
+                metadata={
+                    "success": True,
+                    "include_in_report": False,
+                },
+            ),
+        ]
 
         # Create an instance of the wrapper with a mock workspace
         wrapper = TransformationClassAgentWrapper(workspace, graph=None)
@@ -97,38 +96,40 @@ class TestReactWrapper(TestCase):
 
         # Assert that the file path in the evaluation results has been virtualized correctly
         expected_virtual_path = real_to_virtual(
-            Path(evaluation_results["file_existence"].results[0].metadata["file"]),
+            Path(evaluation_results[0].metadata["file"]),
             workspace,
             virtual_root,
         )
         self.assertEqual(
-            Path(virtualized_results["file_existence"].results[0].metadata["file"]),
+            Path(virtualized_results[0].metadata["file"]),
             expected_virtual_path,
         )
+        # Assert that results without file metadata are unchanged
+        self.assertEqual(len(virtualized_results), 2)
+        self.assertNotIn("file", virtualized_results[1].metadata)
 
     def test_realize_paths_in_evaluation_results(self):
         workspace = Path("/mock/workspace")
         virtual_root = Path("/")
 
-        # Create a mock evaluation results dictionary with a file existence run
-        evaluation_results = {
-            "file_existence": EvaluationRun(
-                started_at=datetime.now(UTC),
-                execution_time_ms=100,
-                iteration=1,
-                errors=[],
-                results=[
-                    EvaluationResult(
-                        content="File exists: /workspace/subdir/test_file.py",
-                        metadata={
-                            "file": str(virtual_root / "subdir" / "test_file.py"),
-                            "success": True,
-                            "include_in_report": False,
-                        },
-                    )
-                ],
-            )
-        }
+        # Create mock evaluation results with virtual file paths
+        evaluation_results = [
+            EvaluationResult(
+                content="File exists: /subdir/test_file.py",
+                metadata={
+                    "file": str(virtual_root / "subdir" / "test_file.py"),
+                    "success": True,
+                    "include_in_report": False,
+                },
+            ),
+            EvaluationResult(
+                content="No file metadata",
+                metadata={
+                    "success": True,
+                    "include_in_report": False,
+                },
+            ),
+        ]
 
         # Create an instance of the wrapper with a mock workspace
         wrapper = TransformationClassAgentWrapper(workspace, graph=None)
@@ -140,14 +141,17 @@ class TestReactWrapper(TestCase):
 
         # Assert that the file path in the evaluation results has been realized correctly
         expected_real_path = virtual_to_real(
-            Path(evaluation_results["file_existence"].results[0].metadata["file"]),
+            Path(evaluation_results[0].metadata["file"]),
             virtual_root,
             workspace,
         )
         self.assertEqual(
-            Path(realized_results["file_existence"].results[0].metadata["file"]),
+            Path(realized_results[0].metadata["file"]),
             expected_real_path,
         )
+        # Assert that results without file metadata are unchanged
+        self.assertEqual(len(realized_results), 2)
+        self.assertNotIn("file", realized_results[1].metadata)
 
     def test_synthesize_transformation_class_returns_all_written_files(self):
         workspace = Path("/mock/workspace")

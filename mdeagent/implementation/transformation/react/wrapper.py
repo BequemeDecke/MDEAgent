@@ -9,7 +9,7 @@ from mdeagent.comprehension.plan import (
     SerializedTransformationPlan,
     TransformationPlan,
 )
-from mdeagent.evaluation.types import EvaluationRun
+from mdeagent.evaluation.types import EvaluationResult, EvaluationRun
 from mdeagent.evaluation.utils import format_evaluation_results
 from mdeagent.implementation.types import (
     TransformationClass,
@@ -27,7 +27,7 @@ class TransformationClassAgentState(AgentState):
     specific_task: str | None
     transformation_plan: SerializedTransformationPlan
     transformation_class: TransformationClass
-    evaluation_results: dict[str, EvaluationRun]
+    evaluation_results: list[EvaluationResult]
 
 
 INPUT_PROMPT_TEMPLATE = """
@@ -53,7 +53,7 @@ def create_input_prompt(
     transformation_plan: TransformationPlan,
     transformation_class: TransformationClass,
     specific_task: str | None = None,
-    evaluation_results: dict[str, str] | None = None,
+    evaluation_results: list[EvaluationResult] = None,
 ) -> TransformationClassAgentState:
     """
     Creates an input prompt for the coding agent based on the provided transformation plan, transformation class, specific task, and evaluation results.
@@ -62,11 +62,13 @@ def create_input_prompt(
         transformation_plan (TransformationPlan): The transformation plan that describes the steps to be taken in order to perform the transformation.
         transformation_class (TransformationClass): The transformation class that contains the source and target model interfaces and the transformation rules.
         specific_task (str | None, optional): A specific task that the agent should focus on. Defaults to None.
-        evaluation_results (dict[str, str] | None, optional): Evaluation results from previous runs. Defaults to None.
+        evaluation_results (list[EvaluationResult] | None, optional): Evaluation results from previous runs. Defaults to None.
 
     Returns:
         TransformationClassAgentState: The input prompt for the coding agent.
     """
+    if evaluation_results is None:
+        evaluation_results = []
     content = INPUT_PROMPT_TEMPLATE.format(
         source_model_package=transformation_plan.data["source_model_package"],
         target_model_package=transformation_plan.data["target_model_package"],
@@ -132,94 +134,98 @@ class TransformationClassAgentWrapper(TransformationClassGenerator):
         return r_class
 
     def virtualize_paths_in_evaluation_results(
-        self, evaluation_results: dict[str, EvaluationRun]
-    ) -> dict[str, EvaluationRun]:
+        self, evaluation_results: list[EvaluationResult]
+    ) -> list[EvaluationResult]:
         """
         Virtualizes the paths in the evaluation results by replacing real paths with virtual paths.
 
         Args:
-            evaluation_results (dict[str, EvaluationRun]): The evaluation results to be virtualized.
+            evaluation_results (list[EvaluationResult]): The evaluation results to be virtualized.
 
         Returns:
-            dict[str, EvaluationRun]: The evaluation results with virtualized paths.
+            list[EvaluationResult]: The evaluation results with virtualized paths.
         """
-        virtualized_results = evaluation_results.copy()
-        virtual_root = self._virtual_root
-
-        file_existence_run = evaluation_results.get("file_existence", None)
-        if file_existence_run:
-            virtualized_results["file_existence"] = replace(
-                file_existence_run,
-                results=[
-                    replace(
-                        result,
-                        metadata={
-                            **result.metadata,
-                            "file": str(
-                                real_to_virtual(
-                                    Path(result.metadata["file"]),
-                                    self.workspace,
-                                    virtual_root,
-                                )
-                            ),
-                        },
+        virtualized = []
+        for result in evaluation_results:
+            metadata = result.metadata
+            # Handle both dict and EvaluationMetadata (dataclass) cases
+            if isinstance(metadata, dict):
+                has_file = "file" in metadata
+                if has_file:
+                    metadata = dict(metadata)
+                    metadata["file"] = str(
+                        real_to_virtual(
+                            Path(metadata["file"]), self.workspace, self._virtual_root
+                        )
                     )
-                    for result in file_existence_run.results
-                ],
-            )
-
-        return virtualized_results
+            else:
+                # EvaluationMetadata dataclass - convert to dict first
+                if hasattr(metadata, "__dict__"):
+                    metadata_dict = dict(metadata.__dict__)
+                else:
+                    metadata_dict = {}
+                if "file" in metadata_dict:
+                    metadata_dict["file"] = str(
+                        real_to_virtual(
+                            Path(metadata_dict["file"]), self.workspace, self._virtual_root
+                        )
+                    )
+                metadata = metadata_dict
+            virtualized.append(replace(result, metadata=metadata))
+        return virtualized
 
     def realize_paths_in_evaluation_results(
-        self, evaluation_results: dict[str, EvaluationRun]
-    ) -> dict[str, EvaluationRun]:
+        self, evaluation_results: list[EvaluationResult]
+    ) -> list[EvaluationResult]:
         """
         Realizes the paths in the evaluation results by replacing virtual paths with real paths.
 
         Args:
-            evaluation_results (dict[str, EvaluationRun]): The evaluation results to be realized.
+            evaluation_results (list[EvaluationResult]): The evaluation results to be realized.
 
         Returns:
-            dict[str, EvaluationRun]: The evaluation results with realized paths.
+            list[EvaluationResult]: The evaluation results with realized paths.
         """
-        realized_results = evaluation_results.copy()
-        virtual_root = self._virtual_root
-
-        file_existence_run = evaluation_results.get("file_existence", None)
-        if file_existence_run:
-            realized_results["file_existence"] = replace(
-                file_existence_run,
-                results=[
-                    replace(
-                        result,
-                        metadata={
-                            **result.metadata,
-                            "file": str(
-                                virtual_to_real(
-                                    Path(result.metadata["file"]),
-                                    virtual_root,
-                                    self.workspace,
-                                )
-                            ),
-                        },
+        realized = []
+        for result in evaluation_results:
+            metadata = result.metadata
+            # Handle both dict and EvaluationMetadata (dataclass) cases
+            if isinstance(metadata, dict):
+                has_file = "file" in metadata
+                if has_file:
+                    metadata = dict(metadata)
+                    metadata["file"] = str(
+                        virtual_to_real(
+                            Path(metadata["file"]), self._virtual_root, self.workspace
+                        )
                     )
-                    for result in file_existence_run.results
-                ],
-            )
-
-        return realized_results
+            else:
+                # EvaluationMetadata dataclass - convert to dict first
+                if hasattr(metadata, "__dict__"):
+                    metadata_dict = dict(metadata.__dict__)
+                else:
+                    metadata_dict = {}
+                if "file" in metadata_dict:
+                    metadata_dict["file"] = str(
+                        virtual_to_real(
+                            Path(metadata_dict["file"]), self._virtual_root, self.workspace
+                        )
+                    )
+                metadata = metadata_dict
+            realized.append(replace(result, metadata=metadata))
+        return realized
 
     async def synthesize_transformation_class(
         self,
         transformation_plan: TransformationPlan,
         transformation_class: TransformationClass,
         specific_task: str | None = None,
-        evaluation_results: dict[str, EvaluationRun] | None = None,
+        evaluation_results: list[EvaluationResult] | None = None,
     ):
         # 1. Map real paths to virtual paths
         virtualized_class = self.virtualize_paths_in_class(transformation_class)
         virtualized_evaluation_results = self.virtualize_paths_in_evaluation_results(
-            evaluation_results or {}
+            evaluation_results or []
         )
 
         input = TransformationClassAgentState(
