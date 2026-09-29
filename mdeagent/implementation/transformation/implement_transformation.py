@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 from mdeagent.comprehension.plan import TransformationPlan
+from mdeagent.evaluation.types import EvaluationResult
 from mdeagent.evaluation.utils import (
     filter_execution_results,
 )
@@ -41,7 +42,7 @@ def create_implement_transformation_node(
             raise ValueError("Task specification is not set in the state.")
 
         # Filter the evaluation results to only include those that are relevant for the current transformation class
-        filtered_results = filter_execution_results(latest_evaluation_runs)
+        filtered_results: list[EvaluationResult] = filter_execution_results(latest_evaluation_runs)
 
         # Call the transformation class generator to synthesize the transformation class)
         written_files = await generator.synthesize_transformation_class(
