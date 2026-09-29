@@ -23,6 +23,7 @@ from mdeagent.implementation.transformation.implement_transformation import (
 from mdeagent.mapping import (
     implementation_to_java_files,
     implementation_to_maven_project,
+    implementation_to_transformation_path,
 )
 from mdeagent.models import build_base_model
 from mdeagent.util import cancel_if_iteration_exceeded, with_transformation
@@ -60,6 +61,7 @@ def build_implementation_graph(
         mapper={
             "file_existence": implementation_to_java_files,
             "java_compilation": implementation_to_maven_project,
+            "transformation_code": implementation_to_transformation_path,
         },
         execution_mode="specific",
     )

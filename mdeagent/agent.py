@@ -17,6 +17,8 @@ from mdeagent.evaluation import (
     PlanCompleteSchema,
     ToolInstalledEvaluation,
     ToolInstalledSchema,
+    TransformationCodeEvaluation,
+    TransformationCodeSchema,
     WorkspaceStructureEvaluation,
     WorkspaceStructureSchema,
 )
@@ -30,6 +32,7 @@ from mdeagent.mapping import (
     mde_to_files,
     mde_to_maven_project,
     mde_to_tools,
+    mde_to_transformation_path,
     mde_to_transformation_plan,
     mde_to_workspace,
 )
@@ -80,6 +83,11 @@ def build_mdeagent(
                 "evaluation_schema": PlanCompleteSchema,
                 "category": "design",
             },
+            "transformation_code": {
+                "evaluation": TransformationCodeEvaluation(),
+                "evaluation_schema": TransformationCodeSchema,
+                "category": "execution",
+            },
         }
     )
 
@@ -124,6 +132,7 @@ def build_mdeagent(
             "tools_installed": mde_to_tools,
             "workspace_structure": mde_to_workspace,
             "plan_complete": mde_to_transformation_plan,
+            "transformation_code": mde_to_transformation_path,
         },
     )
 
