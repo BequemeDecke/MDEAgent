@@ -51,3 +51,62 @@ uv run main.py \
     --use-langfuse \
     "Transform the Families model to the Persons model."
 ```
+
+## Benchmark
+
+### Fetching Models
+
+To fetch the latest available LLM models from the FAU server, you need to:
+
+1. **Set your API key** as an environment variable:
+   ```bash
+   export FAU_API_KEY="your-api-key-here"
+   ```
+
+2. **Run the fetch script**:
+   ```bash
+   uv run fetch-models
+   ```
+
+   This will:
+   - Fetch models from the FAU server and save them to `.mdeagent-benchmark/models.json`
+   - Convert the JSON to CSV and save it to `.mdeagent-benchmark/models.csv`
+
+### Running the Benchmark
+
+The benchmark runs the MDEAgent against all fetched models and collects results via LangFuse.
+
+```bash
+uv run benchmark
+```
+
+**Benchmark arguments**:
+
+| Argument | Default | Description |
+|---|---|---|
+| `--log-level` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--num-iterations` | `5` | Number of times each model should be run |
+| `--max-concurrency` | `3` | Maximum number of tasks to run in parallel |
+
+**Example**:
+```bash
+uv run benchmark --log-level DEBUG --num-iterations 3 --max-concurrency 5
+```
+
+Results are saved to `.mdeagent-benchmark/results.json` and individual result files in `.mdeagent-benchmark/results/`.
+
+## Scripts
+
+### JSON to CSV Conversion
+
+Convert the fetched models JSON file to CSV format:
+
+```bash
+uv run json-to-csv .mdeagent-benchmark/models.json .mdeagent-benchmark/models.csv
+```
+
+**Arguments**:
+- `input`: Path to the input JSON file
+- `output`: Path to the output CSV file
+
+The `fetch_models.py` script calls this automatically after fetching models, so you usually don't need to run it manually.

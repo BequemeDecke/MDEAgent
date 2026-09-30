@@ -102,7 +102,7 @@ async def run_agent(
         The agent's response dict.
     """
     logger = logging.getLogger(__name__)
-    logger.basicConfig(
+    logging.basicConfig(
         level=getattr(logging, log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
