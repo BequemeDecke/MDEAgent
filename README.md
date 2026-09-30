@@ -4,7 +4,7 @@
 2. You need a LLM. It is developed with the OpenAI interface, but with adjusting the model it should work as well.
 
 ## Installation
-1. Clone the repository: `git clone git@github.com:BequemeDecke/mdagent.git`
+1. Clone the repository: `git clone git@github.com:BequemeDecke/MDEAgent.git`
 2. Init the submodules (mdagent-skills): `git submodule init`
 3. Install the dependencies: `uv sync` or `pip install -r requirements.txt`
 
