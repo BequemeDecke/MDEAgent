@@ -1,0 +1,32 @@
+@startuml
+class Core.EvaluationPipe<T> {
+    add_filter(f: EvaluationFilter[T])
+    filter_results(l: List[T]): List[T]
+}
+
+interface Core.EvaluationFilter<T> {
+    filter(l: List[T]): List[T]
+}
+
+EvaluationPipe --> EvaluationFilter : filter *
+
+class ResultFilter.IsReportFilter {
+    filter(l: List[EvaluationResult]): List[EvaluationResult]
+}
+class ResultFilter.IsErrorFilter {
+    filter(l: List[EvaluationResult]): List[EvaluationResult]
+}
+
+EvaluationFilter <|.. IsReportFilter
+EvaluationFilter <|.. IsErrorFilter
+
+class RunFilter.IsExecutionFilter {
+    filter(l: List[EvaluationRun]): List[EvaluationRun]
+}
+class RunFilter.IsDesignFilter {
+    filter(l: List[EvaluationRun]): List[EvaluationRun]
+}
+
+EvaluationFilter <|.. IsExecutionFilter
+EvaluationFilter <|.. IsDesignFilter
+@enduml

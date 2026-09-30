@@ -1,0 +1,9 @@
+@startuml
+interface AgentTransformationForEMF<S, T, D> {
+    void forward(source: S, target: T, decisions: D);
+    void backward(target: T, source: S, decisions: D);
+    void synch(source: S, target: T);
+    void transformSourceToTarget(source: S, target: T, decisions: D);
+    void transformTargetToSource(target: T, source: S, decisions: D);
+}
+@enduml

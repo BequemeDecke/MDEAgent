@@ -1,0 +1,29 @@
+@startuml
+class TransformationPlan {
+    template: Template
+    {static} from_dict(p: SerializedTransformationPlan): TransformationPlan
+    {static} parse(p: TransformationPlanParser, t: Path): TransformationPlan
+    to_dict(): SerializedTransformationPlan
+    update_package_information(s: String, t: String)
+    update_iteration(i: Int)
+    update_model_implementation(s: String, t: String)
+    update_transformation_direction(t: String)
+    update_transformation_difficulties(d: String)
+    update_implementation_steps(i: String)
+}
+
+interface TransformationPlanParser {
+    {static} from_dict(d: SerializedTransformationPlanParser): TransformationPlanParser
+    parse(): TransformationPlanData:
+    save()
+    to_dict(): SerializedTransformationPlanParser
+}
+
+class FileTransformationPlanParser {
+
+}
+
+TransformationPlan --> "1" TransformationPlanParser : parser
+
+TransformationPlanParser <|.. FileTransformationPlanParser
+@enduml

@@ -1,0 +1,95 @@
+@startuml
+struct Core.EvaluationMetadata {
+    success: bool
+}
+struct Core.EvaluationResult {
+    content: str
+}
+EvaluationResult --> EvaluationMetadata : metadata 1
+struct Core.EvaluationError {
+    message: str
+    type: str
+    details: Dict[str, Any]
+}
+struct Core.EvaluationRun {
+    started_at: datetime
+    execution_time_ms: int
+    iteration: int
+    category: str [0..1]
+}
+EvaluationRun o-- EvaluationResult : results
+EvaluationRun o-- EvaluationError : errors
+interface Core.Evaluation {
+    {async} setup()
+    {async} run(**kwargs): tuple[list[EvaluationResult], list[EvaluationError]]
+
+}
+interface Core.EvaluationSchema {
+}
+EvaluationSchema ..|> pydantic.BaseModel
+Evaluation --> EvaluationSchema
+
+struct Core.EvaluationInit {
+    category: str [0..1]
+}
+EvaluationInit --> Evaluation : evaluation
+EvaluationInit --> EvaluationSchema : schema
+
+class Core.EvaluationExecutor {
+    iterations: dict[str, list[EvaluationRun]]
+
+    EvaluationExecutor(es: Dict[str, EvaluationInit])
+    register_linked_evaluation(new_id: str, ex_id: str)
+    {async} execute_all(i: Dict[str, Dict[str, Any]]): Dict[str, EvaluationRun]
+    {async} execute_all(id: str, i: Dict[str, Any]): EvaluationRun
+    get_latest_results(): Dict[str, EvaluationRun]
+}
+EvaluationExecutor --> EvaluationInit : evaluations
+EvaluationExecutor ..> EvaluationRun : <<creates>>
+EvaluationExecutor ..> Evaluation : <<uses>>
+EvaluationExecutor ..> EvaluationSchema : <<uses>>
+
+class Core.EvaluationPipe<T> {
+    add_filter(f: EvaluationFilter[T])
+    filter_results(l: List[T]): List[T]
+}
+
+interface Core.EvaluationFilter<T> {
+    filter(l: List[T]): List[T]
+}
+
+EvaluationPipe --> EvaluationFilter : filter *
+EvaluationPipe ..> EvaluationRun : <<uses>>
+
+class Filter.IsReportFilter {
+    filter(l: List[EvaluationResult]): List[EvaluationResult]
+}
+class Filter.IsErrorFilter {
+    filter(l: List[EvaluationResult]): List[EvaluationResult]
+}
+
+EvaluationFilter <|.. IsReportFilter
+EvaluationFilter <|.. IsErrorFilter
+
+class Filter.IsExecutionFilter {
+    filter(l: List[EvaluationRun]): List[EvaluationRun]
+}
+class Filter.IsDesignFilter {
+    filter(l: List[EvaluationRun]): List[EvaluationRun]
+}
+
+EvaluationFilter <|.. IsExecutionFilter
+EvaluationFilter <|.. IsDesignFilter
+
+component EvaluationNode {
+}
+EvaluationNode ..> EvaluationExecutor : <<uses>>
+
+Evaluator.ToolInstalled ..|> Evaluation
+Evaluator.WorkspaceStructure ..|> Evaluation
+Evaluator.PlanComplete ..|> Evaluation
+Evaluator.FileExistence ..|> Evaluation
+Evaluator.JavaCompilation ..|> Evaluation
+Evaluator.TransformationCode ..|> Evaluation
+Evaluator.Benchmarx ..|> Evaluation
+@enduml
