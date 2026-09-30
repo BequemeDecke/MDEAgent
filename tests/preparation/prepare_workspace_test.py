@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import tempfile
 from datetime import UTC, datetime
@@ -222,7 +223,9 @@ class TestPrepareWorkspace(TestCase):
                 # package_path="de.example.mdeagent",
             )
 
-            output_state: PreparationState = self.prepare_workspace_node(input_state)
+            output_state: PreparationState = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             # Check direct output
             self.assertIsInstance(
@@ -289,7 +292,9 @@ class TestPrepareWorkspace(TestCase):
                 # package_path="de.example.mdeagent",
             )
 
-            output_state: PreparationState = self.prepare_workspace_node(input_state)
+            output_state: PreparationState = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             # Check direct output
             self.assertIsInstance(
@@ -367,7 +372,7 @@ class TestPrepareWorkspace(TestCase):
                 / "mdeagent"
             ).mkdir(parents=True)
 
-            self.prepare_workspace_node(input_state)
+            asyncio.run(self.prepare_workspace_node(input_state))
             self.fix_strategy.fix_structure.assert_called_once_with(input_state)
 
     @patch(
@@ -431,7 +436,9 @@ class TestPrepareWorkspace(TestCase):
                 artifact_id="mdeagent",
             )
 
-            output_state = self.prepare_workspace_node(input_state)
+            output_state = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
             actual_tp: TransformationPlan = output_state.get("transformation_plan")
 
             self.assertIsNotNone(
@@ -458,7 +465,7 @@ class TestPrepareWorkspace(TestCase):
         )
 
         with self.assertRaises(ValueError):
-            self.prepare_workspace_node(input_state)
+            asyncio.run(self.prepare_workspace_node(input_state))
 
         input_state = PreparationState(
             required_tools=[],
@@ -468,7 +475,7 @@ class TestPrepareWorkspace(TestCase):
         )
 
         with self.assertRaises(ValueError):
-            self.prepare_workspace_node(input_state)
+            asyncio.run(self.prepare_workspace_node(input_state))
 
         input_state = PreparationState(
             required_tools=[],
@@ -478,7 +485,7 @@ class TestPrepareWorkspace(TestCase):
         )
 
         with self.assertRaises(ValueError):
-            self.prepare_workspace_node(input_state)
+            asyncio.run(self.prepare_workspace_node(input_state))
 
     def test_prepare_workspace__with_benchmarx_path_no_bxtool_adapter(self):
         """Test that no BxTool adapter is created when benchmarx_path is provided."""
@@ -499,7 +506,9 @@ class TestPrepareWorkspace(TestCase):
                 benchmarx_path=benchmarx_path,  # BenchmarX path is set
             )
 
-            output_state: PreparationState = self.prepare_workspace_node(input_state)
+            output_state: PreparationState = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             # Check that bxtool_path is None when benchmarx_path is provided
             self.assertIsNone(
@@ -564,7 +573,9 @@ class TestPrepareWorkspace(TestCase):
             )
 
             with patch("subprocess.run") as mock_run:
-                output_state = self.prepare_workspace_node(input_state)
+                output_state = asyncio.run(
+                    self.prepare_workspace_node(input_state)
+                )
 
             # The fix strategy must not be invoked ...
             self.fix_strategy.fix_structure.assert_not_called()
@@ -623,7 +634,7 @@ class TestPrepareWorkspace(TestCase):
                 },
             )
 
-            self.prepare_workspace_node(input_state)
+            asyncio.run(self.prepare_workspace_node(input_state))
 
             self.fix_strategy.fix_structure.assert_called_once_with(input_state)
 
@@ -654,7 +665,9 @@ class TestPrepareWorkspace(TestCase):
                 },
             )
 
-            output_state = self.prepare_workspace_node(input_state)
+            output_state = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             # Empty workspace -> create, NOT fix strategy.
             self.fix_strategy.fix_structure.assert_not_called()
@@ -698,7 +711,9 @@ class TestPrepareWorkspace(TestCase):
                 },
             )
 
-            output_state = self.prepare_workspace_node(input_state)
+            output_state = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             self.fix_strategy.fix_structure.assert_not_called()
             self.assertEqual(
@@ -742,7 +757,9 @@ class TestPrepareWorkspace(TestCase):
                 ),
             )
 
-            output_state: PreparationState = self.prepare_workspace_node(input_state)
+            output_state: PreparationState = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             self.assertEqual(
                 output_state.get("transformation_class_path").name,
@@ -778,7 +795,9 @@ class TestPrepareWorkspace(TestCase):
                 ),
             )
 
-            output_state: PreparationState = self.prepare_workspace_node(input_state)
+            output_state: PreparationState = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             bxtool_path = output_state.get("bxtool_path")
             self.assertIsNotNone(bxtool_path)
@@ -808,7 +827,9 @@ class TestPrepareWorkspace(TestCase):
                 artifact_id="mdeagent",
             )
 
-            output_state: PreparationState = self.prepare_workspace_node(input_state)
+            output_state: PreparationState = asyncio.run(
+                self.prepare_workspace_node(input_state)
+            )
 
             self.assertEqual(
                 output_state.get("transformation_class_path").name,
@@ -838,7 +859,9 @@ class TestPrepareWorkspace(TestCase):
             )
 
             with patch("subprocess.run") as mock_run:
-                output_state = self.prepare_workspace_node(input_state)
+                output_state = asyncio.run(
+                    self.prepare_workspace_node(input_state)
+                )
 
             self.assertEqual(mock_run.call_count, 0)
             self.assertIsNone(output_state.get("transformation_class_path"))
@@ -871,9 +894,11 @@ class TestMavenIntegration(TestCase):
             )
 
             try:
-                output = create_prepare_workspace_node(
-                    fix_strategy=Mock(spec=StructureFixStrategy),
-                )(input_state)
+                output = asyncio.run(
+                    create_prepare_workspace_node(
+                        fix_strategy=Mock(spec=StructureFixStrategy),
+                    )(input_state)
+                )
 
                 self.assertEqual(
                     output.get("maven_project_path"),

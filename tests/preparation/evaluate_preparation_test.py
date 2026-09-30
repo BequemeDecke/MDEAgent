@@ -214,6 +214,7 @@ class TestPreparationGraphStructure(TestCase):
     def _compile(self, download_benchmarx: bool = False) -> CompiledStateGraph:
         return build_preparation_graph(
             evaluation_executor=_default_executor(),
+            max_iterations=10,
             download_benchmarx=download_benchmarx,
         ).compile()
 
@@ -315,14 +316,20 @@ class TestPrepareWorkspaceIncrementsIteration(TestCase):
         node = self._make_node()
 
         with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_path = Path(temp_dir) / "workspace"
+            workspace_path.mkdir()
+            (workspace_path / "leftover.txt").write_text("leftover")  # ensure iterdir() is not empty
             input_state = PreparationState(
                 required_tools=[],
-                workspace_path=Path(temp_dir) / "workspace",
+                workspace_path=workspace_path,
                 group_id="de.example",
                 artifact_id="mdeagent",
                 iteration=3,
+                latest_evaluation_runs={
+                    "workspace_structure": _run()
+                },
             )
-            output_state = node(input_state)
+            output_state = asyncio.run(node(input_state))
             self.assertEqual(
                 output_state.get("iteration"),
                 4,
@@ -335,13 +342,19 @@ class TestPrepareWorkspaceIncrementsIteration(TestCase):
         node = self._make_node()
 
         with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_path = Path(temp_dir) / "workspace"
+            workspace_path.mkdir()
+            (workspace_path / "leftover.txt").write_text("leftover")  # ensure iterdir() is not empty
             input_state = PreparationState(
                 required_tools=[],
-                workspace_path=Path(temp_dir) / "workspace",
+                workspace_path=workspace_path,
                 group_id="de.example",
                 artifact_id="mdeagent",
+                latest_evaluation_runs={
+                    "workspace_structure": _run()
+                },
             )
-            output_state = node(input_state)
+            output_state = asyncio.run(node(input_state))
             self.assertEqual(
                 output_state.get("iteration"),
                 1,
@@ -368,19 +381,27 @@ class TestPreparationLoop(TestCase):
         def mock_prepare_workspace_node(*args, **kwargs):
             async def prepare_workspace(state: PreparationState) -> PreparationState:
                 calls["prepare_workspace"] += 1
-                return {"iteration": state.get("iteration", 0) + 1}
+                # The graph wrapper adds the iteration increment, so we just
+                # return the state unchanged.
+                return {}
             return prepare_workspace
 
         def mock_explore_models_node(*args, **kwargs):
-            def explore_models(state: PreparationState) -> PreparationState:
+            async def explore_models(state: PreparationState) -> PreparationState:
                 calls["explore_models"] += 1
                 return {}
             return explore_models
 
-        return calls, mock_prepare_workspace_node, mock_explore_models_node
+        # Use the real evaluation node creation so the loop works
+        def mock_create_evaluation_node(*args, **kwargs):
+            from mdeagent.preparation.evaluate_preparation import create_evaluate_preparation
+            from mdeagent.evaluation.node import create_evaluation_node as real_create
+            return real_create(*args, **kwargs)
+
+        return calls, mock_prepare_workspace_node, mock_explore_models_node, mock_create_evaluation_node
 
     def test_loop__retries_until_evaluation_succeeds(self):
-        calls, mock_prepare, mock_explore = self._build_mocks()
+        calls, mock_prepare, mock_explore, mock_eval = self._build_mocks()
 
         # Fail for the first 2 calls of each evaluation (covers the iter==0 and
         # iter==1 cycles), succeed from call 3 onwards (iter==2 cycle -> END).
@@ -398,13 +419,19 @@ class TestPreparationLoop(TestCase):
         )
 
         with patch(
-            "mdeagent.preparation.agent.create_prepare_workspace_node",
+            "mdeagent.preparation.graph.create_prepare_workspace_node",
             side_effect=mock_prepare,
         ), patch(
-            "mdeagent.preparation.agent.create_explore_models_node",
+            "mdeagent.preparation.graph.create_explore_models_node",
             side_effect=mock_explore,
+        ), patch(
+            "mdeagent.preparation.graph.create_evaluation_node",
+            side_effect=mock_eval,
         ):
-            graph = build_preparation_graph(evaluation_executor=executor).compile()
+            graph = build_preparation_graph(
+                evaluation_executor=executor,
+                max_iterations=10,
+            ).compile()
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 workspace = Path(temp_dir) / "workspace"
@@ -442,7 +469,7 @@ class TestPreparationLoop(TestCase):
         """If iteration == 0 the decision always routes to prepare_workspace, so
         even a 'clean' first evaluation still triggers exactly one preparation
         followed by a clean second evaluation -> END (no retry)."""
-        calls, mock_prepare, mock_explore = self._build_mocks()
+        calls, mock_prepare, mock_explore, mock_eval = self._build_mocks()
 
         executor = _build_executor(
             evaluations={
@@ -458,13 +485,19 @@ class TestPreparationLoop(TestCase):
         )
 
         with patch(
-            "mdeagent.preparation.agent.create_prepare_workspace_node",
+            "mdeagent.preparation.graph.create_prepare_workspace_node",
             side_effect=mock_prepare,
         ), patch(
-            "mdeagent.preparation.agent.create_explore_models_node",
+            "mdeagent.preparation.graph.create_explore_models_node",
             side_effect=mock_explore,
+        ), patch(
+            "mdeagent.preparation.graph.create_evaluation_node",
+            side_effect=mock_eval,
         ):
-            graph = build_preparation_graph(evaluation_executor=executor).compile()
+            graph = build_preparation_graph(
+                evaluation_executor=executor,
+                max_iterations=10,
+            ).compile()
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 workspace = Path(temp_dir) / "workspace"

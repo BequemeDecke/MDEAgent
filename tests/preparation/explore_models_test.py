@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 import tempfile
 from pathlib import Path
@@ -79,7 +80,7 @@ class TestExploreModels(TestCase):
             parent_project = MavenProject.create(workspace, group_id, workspace.stem)
             transformation_project = MavenProject.create(workspace, group_id, artifact_id, parent_project)
 
-            result = self.explore_models(
+            result = asyncio.run(self.explore_models(
                 PreparationState(
                     workspace_path=workspace,
                     artifact_id=artifact_id,
@@ -94,7 +95,7 @@ class TestExploreModels(TestCase):
                         path=self.persons_model_path,
                     ),
                 )
-            )
+            ))
 
             # Check if the parent/pom.xml has been updated with the new modules
             parent_pom = Pom(workspace / "pom.xml")

@@ -18,6 +18,19 @@ def create_test_model_package(temp_dir: Path, package_name: str):
     package_path = temp_dir / package_name
     package_path.mkdir()
 
+    # Create a minimal pom.xml so explore_models can copy the model as a Maven project
+    pom_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>{package_name}</artifactId>
+    <version>1.0.0</version>
+</project>
+"""
+    (package_path / "pom.xml").write_text(pom_content)
+
     source_file = package_path / f"{package_name}.java"
     source_register_file = package_path / f"{package_name}Register.java"
     source_package_file = package_path / f"{package_name}Package.java"
@@ -55,7 +68,10 @@ class TestPreparationAgentIntegration(TestCase):
         )
 
     def test_agent__construction(self):
-        agent = build_preparation_graph(evaluation_executor=self.evaluation_executor)
+        agent = build_preparation_graph(
+            evaluation_executor=self.evaluation_executor,
+            max_iterations=10,
+        )
         graph = agent.compile()
 
         self.assertIsInstance(
@@ -80,6 +96,7 @@ class TestPreparationAgentIntegration(TestCase):
             # Build graph WITHOUT benchmarx download (default behavior)
             agent = build_preparation_graph(
                 evaluation_executor=self.evaluation_executor,
+                max_iterations=10,
                 download_benchmarx=False,
             )
             graph = agent.compile()
@@ -164,6 +181,7 @@ class TestPreparationAgentIntegration(TestCase):
             # Build graph WITH benchmarx download
             agent = build_preparation_graph(
                 evaluation_executor=self.evaluation_executor,
+                max_iterations=10,
                 download_benchmarx=True,
             )
             graph = agent.compile()
