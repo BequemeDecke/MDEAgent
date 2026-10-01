@@ -1,0 +1,12 @@
+@startuml
+struct ImplementationState {
+    transformation_plan: SerializedTransformationPlan
+    transformation_class: TransformationClass
+    task_specification: str 
+    maven_project_path: Path
+    bxtool_path: Path
+    written_files: list[Path] 
+    latest_evaluation_runs: dict[str, EvaluationRun]
+    iteration: int
+}
+@enduml

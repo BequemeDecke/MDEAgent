@@ -1,0 +1,5 @@
+@startuml
+interface TransformationClassGenerator {
+    synthesize_transformation_class(t: TransformationPlan, c: TransformationClass, specific_task: str, r: list[EvaluationResult]): list[Path]
+}
+@enduml

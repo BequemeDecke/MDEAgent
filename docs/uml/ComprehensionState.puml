@@ -1,0 +1,12 @@
+@startuml
+struct Comprehension.ComprehensionState {
+    transformation_plan: SerializedTransformationPlan
+    task_specification: str
+    latest_evaluation_runs: dict[str, EvaluationRun]
+    iteration: int
+}
+struct Comprehension.ComprehensionAgentState {
+    transformation_plan: SerializedTransformationPlan
+}
+LangChain.AgentState <|.. ComprehensionAgentState
+@enduml

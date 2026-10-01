@@ -1,0 +1,25 @@
+@startuml
+struct ModelImplementation {
+    name: str
+    path: Path
+    implementation: str | None
+}
+struct PreparationState {
+    workspace_path: Path        
+    required_tools: list[str]
+    group_id: str | None = None
+    artifact_id: str | None = None
+    benchmarx_path: Path | None = None
+    transformation_plan: TransformationPlan | None
+    source_model: ModelImplementation
+    target_model: ModelImplementation
+    transformation_class_path: Path | None
+    bxtool_path: Path | None = None
+    maven_project_path: Path | None = None
+    transformation_package_path: str | None = None
+    latest_evaluation_runs: dict[str, EvaluationRun]
+    iteration: int = 0 
+}
+PreparationState --> ModelImplementation : source_model
+PreparationState --> ModelImplementation : target_model
+@enduml

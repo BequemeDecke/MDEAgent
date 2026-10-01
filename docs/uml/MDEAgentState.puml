@@ -1,0 +1,19 @@
+@startuml
+struct MDEAgentState {
+    workspace_path: Path
+    maven_project_path: Path
+    source_model_path: Path
+    target_model_path: Path
+    transformation_plan: SerializedTransformationPlan | None
+    task_specification: str | None
+    transformation_package_path: str | None
+    group_id: str
+    artifact_id: str
+    transformation_class_path: Path | None
+    bxtool_path: Path | None
+    required_tools: list[str]
+    written_files: list[Path]
+    latest_evaluation_runs: dict[str, EvaluationRun]
+    iteration: int    
+}
+@enduml

@@ -1,0 +1,10 @@
+@startuml
+interface Generator.TransformationClassGenerator {
+}
+class Generator.TemplateBasedGenerator {
+}
+
+TransformationClassGenerator <|.. TemplateBasedGenerator : <<implements>>
+TemplateBasedGenerator ..> jinja.Template : <<uses>>
+TemplateBasedGenerator ..> langchain.BaseChatModel : <<uses>>
+@enduml

@@ -49,4 +49,47 @@ EvaluationExecutor ..> EvaluationRun : <<creates>>
 EvaluationExecutor ..> Evaluation : <<uses>>
 EvaluationExecutor ..> EvaluationSchema : <<uses>>
 
+class Core.EvaluationPipe<T> {
+    add_filter(f: EvaluationFilter[T])
+    filter_results(l: List[T]): List[T]
+}
+
+interface Core.EvaluationFilter<T> {
+    filter(l: List[T]): List[T]
+}
+
+EvaluationPipe --> EvaluationFilter : filter *
+EvaluationPipe ..> EvaluationRun : <<uses>>
+
+class Filter.IsReportFilter {
+    filter(l: List[EvaluationResult]): List[EvaluationResult]
+}
+class Filter.IsErrorFilter {
+    filter(l: List[EvaluationResult]): List[EvaluationResult]
+}
+
+EvaluationFilter <|.. IsReportFilter
+EvaluationFilter <|.. IsErrorFilter
+
+class Filter.IsExecutionFilter {
+    filter(l: List[EvaluationRun]): List[EvaluationRun]
+}
+class Filter.IsDesignFilter {
+    filter(l: List[EvaluationRun]): List[EvaluationRun]
+}
+
+EvaluationFilter <|.. IsExecutionFilter
+EvaluationFilter <|.. IsDesignFilter
+
+component EvaluationNode {
+}
+EvaluationNode ..> EvaluationExecutor : <<uses>>
+
+Evaluator.ToolInstalled ..|> Evaluation
+Evaluator.WorkspaceStructure ..|> Evaluation
+Evaluator.PlanComplete ..|> Evaluation
+Evaluator.FileExistence ..|> Evaluation
+Evaluator.JavaCompilation ..|> Evaluation
+Evaluator.TransformationCode ..|> Evaluation
+Evaluator.Benchmarx ..|> Evaluation
 @enduml
