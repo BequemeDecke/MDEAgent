@@ -5,7 +5,7 @@
 
 ## Installation
 1. Clone the repository: `git clone git@github.com:BequemeDecke/MDEAgent.git`
-2. Init the submodules (mdagent-skills): `git submodule udpate`
+2. Init the submodules (mdeagent-metamodels): `git submodule update --init --recursive`
 3. Install the dependencies: `uv sync` or `pip install -r requirements.txt`
 
 ## Environment Variables
