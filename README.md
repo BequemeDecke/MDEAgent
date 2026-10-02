@@ -5,8 +5,66 @@
 
 ## Installation
 1. Clone the repository: `git clone git@github.com:BequemeDecke/MDEAgent.git`
-2. Init the submodules (mdagent-skills): `git submodule init`
+2. Init the submodules (mdagent-skills): `git submodule udpate`
 3. Install the dependencies: `uv sync` or `pip install -r requirements.txt`
+
+## Environment Variables
+
+All required environment variables are loaded from a `.env` file in the project root. Create this file based on the template below.
+
+### Model Configuration
+
+| Variable | Required | Description |
+|---|---|---|
+| `API_KEY` | ✅ | API key for the LLM provider |
+| `BASE_URL` | ✅ | Base URL for the LLM API |
+| `BASE_MODEL` | ✅ | The base model to use |
+| `CODING_MODEL` | ✅ | The coding model to use |
+| `REQUEST_TIMEOUT` | ❌ | Request timeout in seconds (default: `60`) |
+| `MAX_RETRIES` | ❌ | Maximum number of retries (default: `0`) |
+
+### LangFuse Configuration
+
+| Variable | Required | Description |
+|---|---|---|
+| `LANGFUSE_SECRET_KEY` | ✅ | LangFuse secret key |
+| `LANGFUSE_PUBLIC_KEY` | ✅ | LangFuse public key |
+| `LANGFUSE_BASE_URL` | ✅ | LangFuse server URL |
+
+### Variables Configuration
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `UPDATED_FILE_INDEX` | ❌ | `13` | Index where the file path starts in the tool message content for the write_file tool |
+| `TRANSFORMATION_CLASS_NAME` | ❌ | `MDEAgentTransformation` | Name of the generated transformation class |
+
+### Agent Control Configuration
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `WORKFLOW_MAX_ITERATIONS` | ❌ | `5` | Maximum number of iterations for the workflow transformation process |
+| `SUBGRAPH_MAX_ITERATIONS` | ❌ | `3` | Maximum number of iterations for a subgraph process |
+| `TRANSFORMATION_IMPLEMENTATION_STRATEGY` | ❌ | `deep_agent` | Strategy for transformation implementation. Options: `deep_agent`, `hybrid_agent`, `template_based`, `pi` |
+
+### Example `.env` File
+
+```bash
+# Model Configuration
+API_KEY="your-api-key-here"
+BASE_URL="https://api.your-provider.com/v1"
+BASE_MODEL="your-base-model"
+CODING_MODEL="your-coding-model"
+
+# LangFuse Configuration
+LANGFUSE_SECRET_KEY="your-secret-key"
+LANGFUSE_PUBLIC_KEY="your-public-key"
+LANGFUSE_BASE_URL="http://localhost:3000"
+
+# Optional: Agent Control
+# WORKFLOW_MAX_ITERATIONS=5
+# SUBGRAPH_MAX_ITERATIONS=3
+# TRANSFORMATION_IMPLEMENTATION_STRATEGY=deep_agent
+```
 
 ## Usage
 
@@ -74,7 +132,9 @@ To fetch the latest available LLM models from the FAU server, you need to:
 
 ### Running the Benchmark
 
-The benchmark runs the MDEAgent against all fetched models and collects results via LangFuse.
+The benchmark runs the MDEAgent against all fetched models and collects results via LangFuse. Therefore, a LangFuse server needs to be running. You can set it up using Docker:
+
+[LangFuse Self-Hosting with Docker Compose](https://langfuse.com/self-hosting/deployment/docker-compose)
 
 ```bash
 uv run benchmark
