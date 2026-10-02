@@ -17,11 +17,10 @@ from unittest import TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mdeagent.comprehension.plan import TransformationPlan
-from mdeagent.implementation.transformation.template.template_resolver import (
-    TemplateResolver,
+from mdeagent.implementation.transformation.template.generator import (
+    TemplateBasedGenerator,
 )
 from mdeagent.implementation.types import TransformationClass
-
 
 # ─── Fixtures ───────────────────────────────────────────────────────
 
@@ -110,7 +109,7 @@ class TestMetadataExtraction(TestCase):
         target_impl = "public interface Address {"
         plan = _make_plan(source_impl=source_impl, target_impl=target_impl)
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         metadata = resolver._extract_metadata(plan)
 
         self.assertEqual(metadata.source_type, "Person")
@@ -122,7 +121,7 @@ class TestMetadataExtraction(TestCase):
         target_impl = "public class Address {"
         plan = _make_plan(source_impl=source_impl, target_impl=target_impl)
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         metadata = resolver._extract_metadata(plan)
 
         self.assertEqual(metadata.source_type, "Person")
@@ -132,7 +131,7 @@ class TestMetadataExtraction(TestCase):
         """When no class/interface name can be extracted, defaults to Object."""
         plan = _make_plan(source_impl="", target_impl="")
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         metadata = resolver._extract_metadata(plan)
 
         self.assertEqual(metadata.source_type, "Object")
@@ -142,7 +141,7 @@ class TestMetadataExtraction(TestCase):
         """Bidirectional direction should yield 'Decision' as decision_type."""
         plan = _make_plan(direction="bidirectional")
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         metadata = resolver._extract_metadata(plan)
 
         self.assertEqual(metadata.decision_type, "Decision")
@@ -151,7 +150,7 @@ class TestMetadataExtraction(TestCase):
         """Unidirectional direction should yield 'Object' as decision_type."""
         plan = _make_plan(direction="source to target")
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         metadata = resolver._extract_metadata(plan)
 
         self.assertEqual(metadata.decision_type, "Object")
@@ -160,7 +159,7 @@ class TestMetadataExtraction(TestCase):
         """Transformation package is derived from source model package."""
         plan = _make_plan(source_pkg="com.myapp.models")
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         metadata = resolver._extract_metadata(plan)
 
         self.assertEqual(metadata.transformation_package, "com.myapp.models.transform")
@@ -169,7 +168,7 @@ class TestMetadataExtraction(TestCase):
         """Empty source package falls back to 'com.example.transform'."""
         plan = _make_plan(source_pkg="")
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         metadata = resolver._extract_metadata(plan)
 
         self.assertEqual(metadata.transformation_package, "com.example.transform")
@@ -182,13 +181,13 @@ class TestEvaluationResultFormatting(TestCase):
 
     def test_none_returns_default_message(self):
         self.assertEqual(
-            TemplateResolver._format_evaluation_results(None),
+            TemplateBasedGenerator._format_evaluation_results(None),
             "No evaluation results available.",
         )
 
     def test_empty_list(self):
         self.assertEqual(
-            TemplateResolver._format_evaluation_results([]),
+            TemplateBasedGenerator._format_evaluation_results([]),
             "No evaluation results available.",
         )
 
@@ -202,7 +201,7 @@ class TestEvaluationResultFormatting(TestCase):
                 metadata={"success": False, "include_in_report": True},
             ),
         ]
-        text = TemplateResolver._format_evaluation_results(results)
+        text = TemplateBasedGenerator._format_evaluation_results(results)
         self.assertIn("[FAILURE]", text)
         self.assertIn("File not found: Test.java", text)
 
@@ -212,12 +211,12 @@ class TestFieldsToInfo(TestCase):
     """Test the _fields_to_info helper."""
 
     def test_empty_fields(self):
-        self.assertEqual(TemplateResolver._fields_to_info([]), "No fields defined.")
+        self.assertEqual(TemplateBasedGenerator._fields_to_info([]), "No fields defined.")
 
     def test_single_field(self):
         fields = [{"type": "String", "name": "name"}]
         self.assertEqual(
-            TemplateResolver._fields_to_info(fields),
+            TemplateBasedGenerator._fields_to_info(fields),
             "String name",
         )
 
@@ -226,7 +225,7 @@ class TestFieldsToInfo(TestCase):
             {"type": "String", "name": "name"},
             {"type": "int", "name": "age"},
         ]
-        result = TemplateResolver._fields_to_info(fields)
+        result = TemplateBasedGenerator._fields_to_info(fields)
         self.assertIn("String name", result)
         self.assertIn("int age", result)
 
@@ -249,7 +248,7 @@ class TestSynthesizeTransformationClass(TestCase):
             workspace = Path(tmpdir)
             tc_path = workspace / "TestTransformation.java"
 
-            resolver = TemplateResolver()
+            resolver = TemplateBasedGenerator()
             plan = _make_plan()
             tc = _make_tc(tc_path)
             mock_parse = _make_ainvoke_and_parse_mock()
@@ -272,7 +271,7 @@ class TestSynthesizeTransformationClass(TestCase):
             workspace = Path(tmpdir)
             tc_path = workspace / "TestTransformation.java"
 
-            resolver = TemplateResolver()
+            resolver = TemplateBasedGenerator()
             plan = _make_plan()
             tc = _make_tc(tc_path, name="TestTransformation")
             mock_parse = _make_ainvoke_and_parse_mock()
@@ -298,7 +297,7 @@ class TestSynthesizeTransformationClass(TestCase):
             workspace = Path(tmpdir)
             nested_path = workspace / "src" / "main" / "java" / "TestTransformation.java"
 
-            resolver = TemplateResolver()
+            resolver = TemplateBasedGenerator()
             plan = _make_plan()
             tc = _make_tc(nested_path)
             mock_parse = _make_ainvoke_and_parse_mock()
@@ -319,7 +318,7 @@ class TestSynthesizeTransformationClass(TestCase):
             workspace = Path(tmpdir)
             tc_path = workspace / "Test.java"
 
-            resolver = TemplateResolver()
+            resolver = TemplateBasedGenerator()
             plan = _make_plan()
             tc = _make_tc(tc_path)
             mock_parse = _make_ainvoke_and_parse_mock()
@@ -358,7 +357,7 @@ class TestSynthesizeTransformationClass(TestCase):
             workspace = Path(tmpdir)
             tc_path = workspace / "Test.java"
 
-            resolver = TemplateResolver()
+            resolver = TemplateBasedGenerator()
             plan = _make_plan()
             tc = _make_tc(tc_path)
             mock_parse = _make_ainvoke_and_parse_mock()
@@ -394,7 +393,7 @@ class TestSynthesizeTransformationClass(TestCase):
                 ),
             ]
 
-            resolver = TemplateResolver()
+            resolver = TemplateBasedGenerator()
             plan = _make_plan()
             tc = _make_tc(tc_path)
             mock_parse = _make_ainvoke_and_parse_mock()
@@ -425,7 +424,7 @@ class TestTemplateResolverClass(TestCase):
         """The synthesize method should be async."""
         import inspect
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         self.assertTrue(
             inspect.iscoroutinefunction(resolver.synthesize_transformation_class)
         )
@@ -434,10 +433,10 @@ class TestTemplateResolverClass(TestCase):
         """TemplateResolver should implement TransformationClassGenerator."""
         from mdeagent.implementation.types import TransformationClassGenerator
 
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         self.assertIsInstance(resolver, TransformationClassGenerator)
 
     def test_llm_is_optional(self):
         """TemplateResolver can be instantiated without an LLM."""
-        resolver = TemplateResolver()
+        resolver = TemplateBasedGenerator()
         self.assertIsNone(resolver.llm)
