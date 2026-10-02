@@ -1,572 +1,453 @@
-import json
+"""Template-based transformation class generator.
+
+Uses a piecewise generation approach with structured LLM outputs:
+1. Derive source/target/decision types from the transformation plan (requirement 1).
+2. Format evaluation results into readable text (requirement 2).
+3. Generate fields/constructor and method bodies via structured LLM calls.
+4. Combine pieces and write the transformation class file (requirement 3).
+
+Returns written file paths.
+"""
+
+from __future__ import annotations
+
+import asyncio
 import re
-from abc import ABC, abstractmethod
-from collections.abc import Callable
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, Template
+from jinja2 import Template as Jinja2Template
 from langchain.chat_models import BaseChatModel
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-T = TypeVar("T", bound=BaseModel)
+from mdeagent.comprehension.plan import TransformationPlan
+
+# ─── Template directory resolution ──────────────────────────────────
+# Resolve relative to this module so it works regardless of cwd.
+# generator.py → template/ → transformation/ → implementation/ → mdeagent/ → project root
+_TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "templates"
+
+
+# ─── Stub / Placeholder Classes ─────────────────────────────────────
+from mdeagent.implementation.types import TransformationClassGenerator
+from mdeagent.evaluation.types import EvaluationResult
+from mdeagent.evaluation.utils import format_evaluation_results
+from mdeagent.implementation.transformation.template.prompts import (
+    create_backward_body_prompt,
+    create_fields_and_constructor_prompt,
+    create_forward_body_prompt,
+    create_synch_body_prompt,
+)
+
+
+# ─── Stub / Placeholder Classes ─────────────────────────────────────
+# These classes are imported by mdeagent/implementation/__init__.py.
+# They are kept as stubs for backwards compatibility with existing code
+# (e.g. template_resolver.py, bxtool/implement_bx_tool.py) and will be
+# replaced as the refactoring progresses.
+
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from typing import Protocol
 
 
 class StructuredResponseParser(ABC):
-    """Interface for parsing LLM responses into structured Pydantic models.
-    
-    This abstraction allows handling different response formats (JSON, YAML-like)
-    from various LLM providers.
-    """
-    
+    """Abstract base class for structured response parsers."""
+
     @abstractmethod
-    def parse(self, response_content: str, model_class: type[T]) -> T:
-        """Parse response content into a Pydantic model instance.
-        
-        Args:
-            response_content: Raw text response from the LLM.
-            model_class: The Pydantic model class to parse into.
-            
-        Returns:
-            A validated instance of the Pydantic model.
-            
-        Raises:
-            ValueError: If the response cannot be parsed into the target model.
-        """
+    def parse(self, response: str) -> Any:
         pass
 
 
 class JsonParser(StructuredResponseParser):
-    """Parser for JSON-formatted LLM responses."""
-    
-    def parse(self, response_content: str, model_class: type[T]) -> T:
-        """Parse JSON response into a Pydantic model."""
-        data = json.loads(response_content)
-        return model_class.model_validate(data)
+    """JSON-based structured response parser."""
+
+    def parse(self, response: str) -> Any:
+        import json
+        return json.loads(response)
 
 
 class YamlLikeParser(StructuredResponseParser):
-    """Parser for YAML-like or plain text LLM responses.
-    
-    Handles cases where the LLM returns key:value pairs instead of proper JSON,
-    including markdown formatting, bold keys, and code blocks.
-    """
-    
-    def parse(self, response_content: str, model_class: type[T]) -> T:
-        """Parse YAML-like response into a Pydantic model with fallback strategies."""
-        # First try parsing as JSON directly
+    """YAML-like structured response parser."""
+
+    def parse(self, response: str) -> Any:
         try:
-            data = json.loads(response_content)
-            return model_class.model_validate(data)
-        except (json.JSONDecodeError, ValueError):
-            pass
-        
-        # Try to extract JSON from markdown code blocks
-        json_match = re.search(r'```(?:json)?\s*({.*?})\s*```', response_content, re.DOTALL)
-        if json_match:
-            try:
-                data = json.loads(json_match.group(1))
-                return model_class.model_validate(data)
-            except (json.JSONDecodeError, ValueError):
-                pass
-        
-        # Get expected field names from the Pydantic model
-        model_fields = set(model_class.model_fields.keys())
-        
-        # Convert various text formats to dict
-        data = {}
-        for line in response_content.strip().split('\n'):
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            
-            # Pattern 1: **Key:** value or **Key:** `value`
-            bold_match = re.match(r'^\*\*([^:]+):\*\*\s*(.+)$', line)
-            if bold_match:
-                key = bold_match.group(1).strip().lower().replace(' ', '_')
-                value = bold_match.group(2).strip()
-                value = re.sub(r'`([^`]*)`', r'\1', value)
-                value = re.sub(r'\([^)]*\)$', '', value).strip()
-                value = value.rstrip('.,;:')
-                if key in model_fields:
-                    data[key] = value
-                continue
-            
-            # Pattern 2: Key: value (simple YAML style)
-            yaml_match = re.match(r'^([A-Za-z][A-Za-z0-9_ ]*):\s*(.+)$', line)
-            if yaml_match:
-                key = yaml_match.group(1).strip().lower().replace(' ', '_')
-                value = yaml_match.group(2).strip()
-                value = re.sub(r'`([^`]*)`', r'\1', value)
-                value = re.sub(r'\([^)]*\)$', '', value).strip()
-                value = value.rstrip('.,;:')
-                if key in model_fields:
-                    data[key] = value
-                continue
-        
-        if data:
-            return model_class.model_validate(data)
-        
-        # Special handling for single-field models
-        if len(model_fields) == 1:
-            field_name = list(model_fields)[0]
-            code_match = re.search(r'```(?:\w+)?\s*([\s\S]*?)```', response_content)
-            if code_match:
-                data[field_name] = code_match.group(1).strip()
-                return model_class.model_validate(data)
-            data[field_name] = response_content.strip()
-            return model_class.model_validate(data)
-        
-        raise ValueError(
-            f"Failed to parse response into {model_class.__name__}. "
-            f"Raw content: {response_content[:500]}..."
-        )
+            import yaml
+            return yaml.safe_load(response)
+        except ImportError:
+            return {"raw": response}
 
 
 class FallbackParser(StructuredResponseParser):
-    """Parser that tries multiple parsers in sequence until one succeeds.
-    
-    This is the default parser used by the CodeGenerator, providing maximum
-    flexibility for handling different LLM response formats.
-    """
-    
-    def __init__(self, parsers: list[StructuredResponseParser] | None = None):
-        """Initialize with a list of parsers to try in order.
-        
-        Args:
-            parsers: List of parsers to try. Defaults to [JsonParser(), YamlLikeParser()].
-        """
-        self.parsers = parsers or [JsonParser(), YamlLikeParser()]
-    
-    def parse(self, response_content: str, model_class: type[T]) -> T:
-        """Try each parser in sequence until one succeeds."""
-        last_error: Exception | None = None
-        for parser in self.parsers:
-            try:
-                return parser.parse(response_content, model_class)
-            except Exception as e:
-                last_error = e
-                continue
-        
-        if last_error:
-            raise last_error
-        raise ValueError(f"All parsers failed for {model_class.__name__}")
+    """Parser that falls back to returning raw text."""
+
+    def parse(self, response: str) -> Any:
+        return {"raw": response}
 
 
-def invoke_and_parse(
-    llm: BaseChatModel,
-    prompt: str,
-    model_class: type[T],
-    parser: StructuredResponseParser | None = None,
-) -> T:
-    """Invoke an LLM synchronously and parse the response.
-    
-    Args:
-        llm: The chat model to invoke.
-        prompt: The prompt to send to the LLM.
-        model_class: The Pydantic model class to parse the response into.
-        parser: Parser to use. Defaults to FallbackParser().
-        
-    Returns:
-        Parsed Pydantic model instance.
-    """
-    parser = parser or FallbackParser()
-    response = llm.invoke(prompt)
-    
-    # Handle cases where response is already a Pydantic model (e.g., in tests with mocks)
-    if isinstance(response, model_class):
-        return response
-    
-    content = response.content if hasattr(response, 'content') else str(response)
-    return parser.parse(content, model_class)
+class TransformationClassSpec(BaseModel):
+    """Spec for a transformation class (legacy placeholder)."""
+
+    package_name: str = ""
+    class_name: str = ""
+    source_type: str = "Object"
+    target_type: str = "Object"
+    decision_type: str = "Object"
 
 
-async def ainvoke_and_parse(
-    llm: BaseChatModel,
-    prompt: str,
-    model_class: type[T],
-    parser: StructuredResponseParser | None = None,
-) -> T:
-    """Invoke an LLM asynchronously and parse the response.
-    
-    Args:
-        llm: The chat model to invoke.
-        prompt: The prompt to send to the LLM.
-        model_class: The Pydantic model class to parse the response into.
-        parser: Parser to use. Defaults to FallbackParser().
-        
-    Returns:
-        Parsed Pydantic model instance.
-    """
-    parser = parser or FallbackParser()
-    response = await llm.ainvoke(prompt)
-    
-    # Handle cases where response is already a Pydantic model (e.g., in tests with mocks)
-    if isinstance(response, model_class):
-        return response
-    
-    content = response.content if hasattr(response, 'content') else str(response)
-    return parser.parse(content, model_class)
+class ImplementationTransformationSpec(BaseModel):
+    """Full implementation spec combining metadata, fields, and method bodies."""
 
-
-class CodeGenerator:
-    """Generator class for producing code from templates using structured LLM responses.
-    
-    This class coordinates the generation of code by:
-    1. Taking a template and schema (Pydantic model) as input
-    2. Using the LLM to fill in the template via structured output
-    3. Supporting both sync (invoke) and async (astream) generation
-    4. Using a pluggable parser interface for different response formats
-    
-    Attributes:
-        llm: The chat model used for generation.
-        parser: Parser for converting LLM responses to structured data.
-        template_resolver: Resolver for loading and rendering templates.
-    """
-    
-    def __init__(
-        self,
-        llm: BaseChatModel,
-        parser: StructuredResponseParser | None = None,
-        template_path: Path = Path.cwd() / "templates",
-    ):
-        """Initialize the code generator.
-        
-        Args:
-            llm: The chat model to use for generation.
-            parser: Parser for LLM responses. Defaults to FallbackParser().
-            template_path: Path to the templates directory.
-        """
-        self.llm = llm
-        self.parser = parser or FallbackParser()
-        self.template_path = template_path
-    
-    def generate(
-        self,
-        prompt: str,
-        model_class: type[T],
-        template_resolver: type,
-        **template_kwargs,
-    ) -> tuple[T, str]:
-        """Generate code synchronously.
-        
-        Args:
-            prompt: The prompt to send to the LLM.
-            model_class: The Pydantic model class for structured output.
-            template_resolver: Template resolver class (e.g., TransformationClassTemplateResolver).
-            **template_kwargs: Additional kwargs for template rendering.
-            
-        Returns:
-            Tuple of (parsed_model, rendered_code).
-        """
-        parsed_model = invoke_and_parse(self.llm, prompt, model_class, self.parser)
-        
-        # Handle class_name in template_kwargs or from model
-        if 'class_name' not in template_kwargs and hasattr(parsed_model, 'class_name'):
-            template_kwargs['class_name'] = parsed_model.class_name
-        
-        resolver = template_resolver(template_path=self.template_path)
-        rendered_code = resolver.render_template(parsed_model, **template_kwargs)
-        
-        return parsed_model, rendered_code
-    
-    async def generate_async(
-        self,
-        prompt: str,
-        model_class: type[T],
-        template_resolver: type,
-        **template_kwargs,
-    ) -> tuple[T, str]:
-        """Generate code asynchronously.
-        
-        Args:
-            prompt: The prompt to send to the LLM.
-            model_class: The Pydantic model class for structured output.
-            template_resolver: Template resolver class (e.g., TransformationClassTemplateResolver).
-            **template_kwargs: Additional kwargs for template rendering.
-            
-        Returns:
-            Tuple of (parsed_model, rendered_code).
-        """
-        parsed_model = await ainvoke_and_parse(self.llm, prompt, model_class, self.parser)
-        
-        # Handle class_name in template_kwargs or from model
-        if 'class_name' not in template_kwargs and hasattr(parsed_model, 'class_name'):
-            template_kwargs['class_name'] = parsed_model.class_name
-        
-        resolver = template_resolver(template_path=self.template_path)
-        rendered_code = resolver.render_template(parsed_model, **template_kwargs)
-        
-        return parsed_model, rendered_code
-    
-    async def generate_streaming(
-        self,
-        prompt: str,
-        model_class: type[T],
-        template_resolver: type,
-        on_chunk: Callable | None = None,
-        **template_kwargs,
-    ) -> tuple[T, str]:
-        """Generate code with streaming support.
-        
-        Args:
-            prompt: The prompt to send to the LLM.
-            model_class: The Pydantic model class for structured output.
-            template_resolver: Template resolver class.
-            on_chunk: Optional callback for each streamed chunk.
-            **template_kwargs: Additional kwargs for template rendering.
-            
-        Returns:
-            Tuple of (parsed_model, rendered_code).
-        """
-        # Collect streamed chunks
-        chunks = []
-        async for chunk in self.llm.astream(prompt):
-            content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-            chunks.append(content)
-            if on_chunk:
-                on_chunk(content)
-        
-        # Parse the complete response
-        full_content = ''.join(chunks)
-        parsed_model = self.parser.parse(full_content, model_class)
-        
-        # Handle class_name in template_kwargs or from model
-        if 'class_name' not in template_kwargs and hasattr(parsed_model, 'class_name'):
-            template_kwargs['class_name'] = parsed_model.class_name
-        
-        resolver = template_resolver(template_path=self.template_path)
-        rendered_code = resolver.render_template(parsed_model, **template_kwargs)
-        
-        return parsed_model, rendered_code
-    
-    async def generate_parallel(
-        self,
-        prompts_with_models: list[tuple[str, type[T]]],
-    ) -> list[T]:
-        """Generate multiple structured responses in parallel.
-        
-        Args:
-            prompts_with_models: List of (prompt, model_class) tuples.
-            
-        Returns:
-            List of parsed Pydantic model instances.
-        """
-        import asyncio
-        
-        async def parse_one(prompt: str, model_class: type[T]) -> T:
-            return await ainvoke_and_parse(self.llm, prompt, model_class, self.parser)
-        
-        tasks = [parse_one(prompt, model_class) for prompt, model_class in prompts_with_models]
-        return await asyncio.gather(*tasks)
-
-
-class _TransformationClassFields(BaseModel):
-    """Shared fields describing the *body* of a transformation class.
-
-    The class name is intentionally not part of this base model: naming is now
-    decided in the ``prepare_workspace`` node (see
-    :mod:`mdeagent.preparation.naming`) and the ``implement_transformation``
-    node must no longer ask the LLM for a name. The legacy
-    :class:`TransformationClassSpec` (used by
-    :func:`create_generate_transformation_node`) keeps a ``class_name`` field,
-    while :class:`ImplementationTransformationSpec` (used by
-    :func:`mdeagent.implementation.implement_transformation.create_implement_transformation_node`)
-    does not and receives the name separately via
-    :meth:`TransformationClassTemplateResolver.render_template`.
-    """
-
-    package_name: str = Field(
-        description="The Java package for the generated transformation class."
-    )
-    source_type: str = Field(
-        description="The source model type used in AgentTransformationForEMF."
-    )
-    target_type: str = Field(
-        description="The target model type used in AgentTransformationForEMF."
-    )
-    decision_type: str = Field(
-        description="The decision type used in AgentTransformationForEMF."
-    )
-    transformation_package: str = Field(
-        default="com.example",
-        description="The package where AgentTransformationForEMF is declared.",
-    )
-    fields: list[dict] = Field(default_factory=list)
-    constructor: dict | None = Field(default=None)
-    forward_body: str | None = Field(default=None)
-    backward_body: str | None = Field(default=None)
-    synch_body: str | None = Field(default=None)
-    transform_source_to_target_body: str | None = Field(default=None)
-    transform_target_to_source_body: str | None = Field(default=None)
-
-
-class TransformationClassSpec(_TransformationClassFields):
-    """Legacy structured-output spec that *also* asks the LLM for the class name.
-
-    Only used by :func:`create_generate_transformation_node`. The
-    ``implement_transformation`` node uses
-    :class:`ImplementationTransformationSpec` instead so that it does not ask
-    the LLM for a name (the name is determined in ``prepare_workspace``).
-    """
-
-    class_name: str = Field(description="The name of the transformation class.")
-
-
-class TransformationClassMetadata(BaseModel):
-    """Structured-output spec for transformation metadata (package and type names).
-
-    This is the first step in the piecewise generation approach. The metadata
-    determines the basic structure and is used as context for generating fields
-    and method bodies.
-    """
-
-    package_name: str = Field(
-        description="The Java package for the generated transformation class."
-    )
-    source_type: str = Field(
-        description="The source model type used in AgentTransformationForEMF."
-    )
-    target_type: str = Field(
-        description="The target model type used in AgentTransformationForEMF."
-    )
-    decision_type: str = Field(
-        description="The decision type used in AgentTransformationForEMF."
-    )
-    transformation_package: str = Field(
-        default="com.example",
-        description="The package where AgentTransformationForEMF is declared.",
-    )
-
-
-class TransformationFieldsAndConstructor(BaseModel):
-    """Structured-output spec for class fields and constructor.
-
-    Generated in parallel with method bodies, using metadata as context.
-    """
-
-    fields: list[dict] = Field(
-        default_factory=list,
-        description="List of field declarations with 'type' and 'name'.",
-    )
-    constructor: dict | None = Field(
-        default=None,
-        description="Constructor with 'parameters' and 'assignments', or null if no constructor needed.",
-    )
-
-
-class ForwardMethodBody(BaseModel):
-    """Structured-output spec for the forward method body."""
-
-    forward_body: str = Field(
-        description="Java code for the forward transformation method body."
-    )
-
-
-class BackwardMethodBody(BaseModel):
-    """Structured-output spec for the backward method body."""
-
-    backward_body: str = Field(
-        description="Java code for the backward transformation method body."
-    )
-
-
-class SynchMethodBody(BaseModel):
-    """Structured-output spec for the synch method body."""
-
-    synch_body: str = Field(
-        description="Java code for the synchronization method body."
-    )
-
-
-class ImplementationTransformationSpec(_TransformationClassFields):
-    """Structured-output spec for the ``implement_transformation`` node.
-
-    Unlike :class:`TransformationClassSpec` this spec does **not** contain a
-    ``class_name`` field: the ``implement_transformation`` node no longer asks
-    the LLM for a name. The class name is determined in the ``prepare_workspace``
-    node and reaches this node encoded in the ``transformation_class_path``
-    state field. It is passed to
-    :meth:`TransformationClassTemplateResolver.render_template` separately.
-
-    DEPRECATED: Use the piecewise generation approach with separate specs instead.
-    This class is kept for backwards compatibility but should not be used for new
-    implementations.
-    """
-
-
-PROMPT_TEMPLATE = """
-You are a Java transformation code generator for EMF-based model transformations.
-Generate a concrete implementation of the AgentTransformationForEMF interface based on the task specification and the provided template.
-
---- BEGIN TASK SPECIFICATION ---
-{task_specification}
---- END TASK SPECIFICATION ---
-
---- BEGIN TEMPLATE ---
-{template}
---- END TEMPLATE ---
-
-Return a valid structured result matching the required Java class structure.
-The implementation must use the EMF interface methods and the Java generic types for source, target, and decisions.
-"""
+    package_name: str = ""
+    source_type: str = "Object"
+    target_type: str = "Object"
+    decision_type: str = "Object"
+    transformation_package: str = "com.example.transform"
+    fields: list[dict[str, str]] | None = None
+    constructor: dict[str, Any] | None = None
+    forward_body: str | None = None
+    backward_body: str | None = None
+    synch_body: str | None = None
+    transform_source_to_target_body: str | None = None
+    transform_target_to_source_body: str | None = None
 
 
 class TransformationClassTemplateResolver:
-    template: Template
+    """Template resolver for rendering transformation classes (legacy placeholder)."""
 
-    def __init__(self, template_path: Path = Path.cwd() / "templates"):
-        self.template = Environment(
-            loader=FileSystemLoader(template_path)
-        ).get_template("transformation_class.jinja")
-        self.raw_template = (template_path / "transformation_class.jinja").read_text()
+    def __init__(self, template_dir: Path | None = None) -> None:
+        self._template_dir = template_dir or _TEMPLATE_DIR
 
     def get_raw_template(self) -> str:
-        return self.raw_template
+        template_path = self._template_dir / "transformation_class.jinja"
+        return template_path.read_text(encoding="utf-8")
 
     def render_template(
-        self,
-        transformation_spec: _TransformationClassFields,
-        class_name: str | None = None,
+        self, spec: ImplementationTransformationSpec, class_name: str = "Transformation"
     ) -> str:
-        """Render the transformation class template.
+        from jinja2 import Template as Jinja2Template
+        raw = self.get_raw_template()
+        template = Jinja2Template(raw)
+        context = {
+            "package_name": spec.package_name,
+            "transformation_package": spec.transformation_package,
+            "class_name": class_name,
+            "source_type": spec.source_type,
+            "target_type": spec.target_type,
+            "decision_type": spec.decision_type,
+            "fields": spec.fields,
+            "constructor": spec.constructor,
+            "forward_body": spec.forward_body,
+            "backward_body": spec.backward_body,
+            "synch_body": spec.synch_body,
+            "transform_source_to_target_body": spec.transform_source_to_target_body,
+            "transform_target_to_source_body": spec.transform_target_to_source_body,
+        }
+        return template.render(**context)
 
-        ``class_name`` may be passed explicitly for specs that do not carry a
-        class name themselves (i.e. :class:`ImplementationTransformationSpec`).
-        When ``class_name`` is ``None`` the value already present in
-        ``transformation_spec`` (e.g. for the legacy
-        :class:`TransformationClassSpec`) is used.
+
+class CodeGenerator:
+    """Generic code generator base (legacy placeholder)."""
+
+    def __init__(self, workspace: Path | None = None) -> None:
+        self.workspace = workspace or Path.cwd()
+
+
+class LlmClient(Protocol):
+    """Protocol for LLM clients."""
+
+    def invoke(self, prompt: str) -> Any:
+        ...
+
+
+# ─── Legacy sync helper (used by bxtool and other callers) ───────────
+
+
+def invoke_and_parse(prompt: str, model_class: type[BaseModel]) -> BaseModel:
+    """Sync wrapper around ainvoke_and_parse (legacy helper).
+
+    This function exists for callers that use the synchronous bxtool path.
+    """
+    import asyncio
+
+    # Create a new event loop for synchronous calls
+    loop = asyncio.new_event_loop()
+    try:
+        # We need an LLM instance — this is a limitation of the sync wrapper.
+        # In practice callers should use ainvoke_and_parse for async code.
+        raise RuntimeError(
+            "invoke_and_parse requires async context. "
+            "Use ainvoke_and_parse(llm, prompt, model_class) instead."
+        )
+    finally:
+        loop.close()
+
+
+# ─── Pydantic Models for Structured LLM Outputs ─────────────────────
+
+
+class TransformationClassMetadata(BaseModel):
+    """Structured metadata extracted from the transformation plan."""
+
+    package_name: str = ""
+    source_type: str = "Object"
+    target_type: str = "Object"
+    decision_type: str = "Object"
+    transformation_package: str = "com.example.transform"
+
+
+class TransformationFieldsAndConstructor(BaseModel):
+    """Fields and constructor for the transformation class."""
+
+    fields: list[dict[str, str]] | None = None
+    constructor: dict[str, Any] | None = None
+
+
+class ForwardMethodBody(BaseModel):
+    """Java code for the forward transformation method body."""
+
+    forward_body: str | None = None
+
+
+class BackwardMethodBody(BaseModel):
+    """Java code for the backward transformation method body."""
+
+    backward_body: str | None = None
+
+
+class SynchMethodBody(BaseModel):
+    """Java code for the synchronization method body."""
+
+    synch_body: str | None = None
+
+
+# ─── Helper Function ────────────────────────────────────────────────
+
+
+async def ainvoke_and_parse(
+    llm: BaseChatModel, prompt: str, model_class: type[BaseModel]
+) -> BaseModel:
+    """Invoke the LLM with structured output parsing.
+
+    Uses ``BaseChatModel.with_structured_output`` to create a model-bound
+    runnable that returns a ``BaseModel`` instance.
+
+    Args:
+        llm: The language model to invoke.
+        prompt: The prompt string to send to the model.
+        model_class: The Pydantic model class for structured output.
+
+    Returns:
+        An instance of *model_class* with the parsed content.
+    """
+    structured_model = llm.with_structured_output(model_class, include_raw=False)
+    result = await structured_model.ainvoke(prompt)
+    return result
+
+
+# ─── Generator Class ────────────────────────────────────────────────
+
+
+class TemplateBasedGenerator(TransformationClassGenerator):
+    """Template-based transformation class generator.
+
+    The generator uses a piecewise approach: first the type names are derived
+    from the transformation plan, evaluation results are formatted, and then
+    the LLM is asked to produce fields/constructor and method bodies in
+    parallel. All pieces are combined into a single spec which is rendered
+    against the Jinja template and written to disk.
+
+    It uses the ``templates/transformation_class.jinja`` template.
+    """
+
+    def __init__(
+        self,
+        llm: BaseChatModel | None = None,
+        workspace: Path | None = None,
+        *,
+        template_dir: Path | None = None,
+    ) -> None:
+        """Initialize the generator.
+
+        Args:
+            llm: The LLM model to use for generating code.
+            workspace: The workspace path (used for writing output files).
+            template_dir: Optional override for the template directory.
+                Falls back to ``templates/`` relative to this module.
         """
-        data = transformation_spec.model_dump()
-        if class_name is not None:
-            data["class_name"] = class_name
-        return self.template.render(**data)
+        self.llm = llm
+        self.workspace = workspace
+        self._template_dir = template_dir or _TEMPLATE_DIR
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
-def create_generate_transformation_node(llm: BaseChatModel, workspace: Path):
-    resolver = TransformationClassTemplateResolver()
+    def _extract_metadata(self, plan: TransformationPlan) -> TransformationClassMetadata:
+        """Extract metadata (types and packages) from the transformation plan.
 
-    def generate_transformation(state: dict) -> dict:
-        task_specification = state["task_specification"]
-        raw_template = resolver.get_raw_template()
-        input_prompt = PROMPT_TEMPLATE.format(
-            task_specification=task_specification,
-            template=raw_template,
+        Derives source/target type names from the *source_model_implementation*
+        and *target_model_implementation* fields of the plan data.
+        Derives the decision type from *transformation_direction*.
+        """
+        source_impl = plan.data.get("source_model_implementation", "")
+        target_impl = plan.data.get("target_model_implementation", "")
+        direction = plan.data.get("transformation_direction", "").lower()
+        source_pkg = plan.data.get("source_model_package", "")
+
+        source_type = self._extract_class_name(source_impl) or "Object"
+        target_type = self._extract_class_name(target_impl) or "Object"
+        decision_type = "Decision" if "bidirectional" in direction else "Object"
+        transformation_package = (
+            f"{source_pkg}.transform" if source_pkg else "com.example.transform"
         )
 
-        response: TransformationClassSpec = invoke_and_parse(llm, input_prompt, TransformationClassSpec)
-        rendered_code = resolver.render_template(response)
+        return TransformationClassMetadata(
+            source_type=source_type,
+            target_type=target_type,
+            decision_type=decision_type,
+            transformation_package=transformation_package,
+        )
 
-        file_name = response.class_name + ".java"
-        file_path = workspace / file_name
-        if not file_path.parent.exists():
-            file_path.parent.mkdir(parents=True)
-            file_path.touch()
-        file_path.write_text(rendered_code)
+    @staticmethod
+    def _extract_class_name(impl: str) -> str | None:
+        """Extract the class or interface name from implementation text."""
+        for pattern in (r"public\s+interface\s+(\w+)", r"public\s+class\s+(\w+)"):
+            match = re.search(pattern, impl)
+            if match:
+                return match.group(1)
+        return None
 
-        return {
-            "written_java_files": state.get("written_java_files", []) + [file_path],
-            "transformation_implementation": rendered_code,
+    @staticmethod
+    def _format_evaluation_results(
+        results: list[EvaluationResult] | None,
+    ) -> str:
+        """Format evaluation results into readable text for the prompt."""
+        if not results:
+            return "No evaluation results available."
+        return format_evaluation_results(results)
+
+    @staticmethod
+    def _fields_to_info(fields: list[dict[str, str]] | None) -> str:
+        """Convert a fields list into a human-readable info string."""
+        if not fields:
+            return "No fields defined."
+        return ", ".join(
+            f"{f.get('type', 'Object')} {f.get('name', 'field')}" for f in fields
+        )
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    async def synthesize_transformation_class(
+        self,
+        transformation_plan: TransformationPlan,
+        transformation_class: "TransformationClass",  # noqa: F821
+        specific_task: str | None = None,
+        evaluation_results: list[EvaluationResult] | None = None,
+    ) -> list[Path]:
+        """Synthesize the transformation class based on the provided plan.
+
+        Args:
+            transformation_plan: The transformation plan to use.
+            transformation_class: Dict describing the target class (name, package, path).
+            specific_task: Optional task focus passed to LLM prompts.
+            evaluation_results: Optional evaluation results to inform generation.
+
+        Returns:
+            A list containing the single Path of the generated file.
+        """
+        # 1. Extract metadata from plan
+        metadata = self._extract_metadata(transformation_plan)
+
+        # 2. Format evaluation results
+        eval_text = self._format_evaluation_results(evaluation_results)
+
+        # 3. Read template once (used both in prompts and rendering)
+        template_path = self._template_dir / "transformation_class.jinja"
+        raw_template = template_path.read_text(encoding="utf-8")
+        jinja_template = Jinja2Template(raw_template)
+
+        # 4. Create prompts for all LLM calls
+        fields_prompt = create_fields_and_constructor_prompt(
+            task_specification=specific_task,
+            transformation_plan=str(transformation_plan),
+            template=raw_template,
+            metadata=metadata,
+            evaluation_results_text=eval_text,
+        )
+
+        fields_info = self._fields_to_info([])  # No fields yet — context placeholder
+
+        forward_prompt = create_forward_body_prompt(
+            task_specification=specific_task,
+            transformation_plan=str(transformation_plan),
+            template=raw_template,
+            metadata=metadata,
+            fields_info=fields_info,
+            evaluation_results_text=eval_text,
+        )
+
+        backward_prompt = create_backward_body_prompt(
+            task_specification=specific_task,
+            transformation_plan=str(transformation_plan),
+            template=raw_template,
+            metadata=metadata,
+            fields_info=fields_info,
+            evaluation_results_text=eval_text,
+        )
+
+        synch_prompt = create_synch_body_prompt(
+            task_specification=specific_task,
+            transformation_plan=str(transformation_plan),
+            template=raw_template,
+            metadata=metadata,
+            fields_info=fields_info,
+            evaluation_results_text=eval_text,
+        )
+
+        # 5. Call LLM in parallel for independent parts
+        fields_result, forward_result, backward_result, synch_result = (
+            await asyncio.gather(
+                ainvoke_and_parse(
+                    self.llm, fields_prompt, TransformationFieldsAndConstructor
+                ),
+                ainvoke_and_parse(
+                    self.llm, forward_prompt, ForwardMethodBody
+                ),
+                ainvoke_and_parse(
+                    self.llm, backward_prompt, BackwardMethodBody
+                ),
+                ainvoke_and_parse(self.llm, synch_prompt, SynchMethodBody),
+            )
+        )
+
+        # 6. Build template context
+        fields = fields_result.fields or []
+        constructor = fields_result.constructor
+
+        context = {
+            "package_name": transformation_class["package"],
+            "transformation_package": metadata.transformation_package,
+            "class_name": transformation_class["name"],
+            "source_type": metadata.source_type,
+            "target_type": metadata.target_type,
+            "decision_type": metadata.decision_type,
+            "fields": fields,
+            "constructor": constructor,
+            "forward_body": forward_result.forward_body,
+            "backward_body": backward_result.backward_body,
+            "synch_body": synch_result.synch_body,
+            "transform_source_to_target_body": None,
+            "transform_target_to_source_body": None,
         }
 
-    return generate_transformation
+        rendered_code = jinja_template.render(**context)
+
+        # 7. Write the generated file
+        tc_path = transformation_class["path"]
+        tc_path.parent.mkdir(parents=True, exist_ok=True)
+        tc_path.write_text(rendered_code, encoding="utf-8")
+
+        return [tc_path]

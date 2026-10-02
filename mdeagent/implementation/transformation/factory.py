@@ -16,11 +16,11 @@ def create_transformation_class_generator(
         )
 
     if strategy == "template_based":
-        from mdeagent.implementation.transformation.template.template_resolver import (
-            TemplateResolver,
+        from mdeagent.implementation.transformation.template.generator import (
+            TemplateBasedGenerator,
         )
 
-        return TemplateResolver(llm=kwargs.get("model"), workspace=workspace)
+        return TemplateBasedGenerator(llm=kwargs.get("model"), workspace=workspace)
 
     if strategy == "pi":
         from mdeagent.implementation.transformation.external.pi import (
