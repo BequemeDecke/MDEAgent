@@ -38,6 +38,8 @@ TEST_SETUP_FILES = PROJECT_ROOT / ".mdeagent-tests" / "setup"
 SOURCE_MODEL_PATH = TEST_SETUP_FILES / "metamodels" / "Families"
 TARGET_MODEL_PATH = TEST_SETUP_FILES / "metamodels" / "Persons"
 
+MODELS_CSV.parent.mkdir(parents=True, exist_ok=True)
+
 # Task specification (same as in mdeagent_test.py)
 TASK_SPECIFICATION = (
     "Transform the Families model to the Persons model, "
